@@ -1,0 +1,16 @@
+# Home Assistant configuration for ha-phone
+# Xiaomi Home 通过 UI config_flow 添加，不需在此配置
+
+default_config:
+
+http:
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 127.0.0.1
+
+logger:
+  default: info
+
+# ── 预留：Google Home 桥接 ──
+# cloud: {}
+# google_assistant: {}

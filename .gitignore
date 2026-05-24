@@ -1,0 +1,7 @@
+# ha-phone gitignore
+.bak/
+*.pyc
+__pycache__/
+.DS_Store
+*.swp
+*~
