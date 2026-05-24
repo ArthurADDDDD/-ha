@@ -34,6 +34,18 @@ if command -v udocker >/dev/null 2>&1; then
     fi
 fi
 
+# ── 确保容器已建，并打容器内补丁（ifaddr 等）─────────────────────────────
+# 首次启动时容器 ROOT 还不存在，先 udocker_create 让 ROOT 落盘再打补丁，
+# 否则要等首次失败后再启动才能修好。
+if command -v udocker_create >/dev/null 2>&1; then
+    if [ ! -d "${HOME}/.udocker/containers/${CONTAINER_NAME}/ROOT" ]; then
+        echo "[INFO] 首次启动：预创建容器 $CONTAINER_NAME ..."
+        udocker_check || true
+        udocker_create "$CONTAINER_NAME" "$IMAGE_NAME" || true
+    fi
+fi
+bash "${SCRIPT_DIR}/patch-container.sh" || log_warn "patch-container.sh 失败，继续启动（HA 可能进 recovery mode）"
+
 # ── 启动（前台，日志直接输出到终端）───────────────────────────────────────
 export PORT="${PORT:-8123}"
 mkdir -p "${HA_BASE}/haconfig"

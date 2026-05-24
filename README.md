@@ -43,6 +43,7 @@ ha-phone/
 │   ├── show-version.sh        查看版本
 │   ├── check-ha.sh            健康检查
 │   ├── clean.sh                 清理现有安装
+│   ├── patch-container.sh        容器内 Python 库兼容补丁（ifaddr 等）
 │   ├── reinstall-xiaomi-home.sh  重装 Xiaomi Home
 │   └── reinstall-midea.sh       美的美居（可选）
 └── lib/
@@ -98,6 +99,7 @@ sh scripts/reinstall-xiaomi-home.sh  # 仅重装 Xiaomi Home
 
 1. **udocker platform** — `source.env` 添加 `--platform=linux/arm64`
 2. **Docker 镜像源** — `home-assistant-core.sh` 固定使用 Docker Hub
+3. **ifaddr EACCES** — 容器内 `ifaddr/_posix.py` 容忍 Android `getifaddrs()` 权限拒绝，避免 HA `http` 组件启动失败连锁导致 recovery mode（由 `scripts/patch-container.sh` 在 `start-ha.sh` 启动时自动打）
 
 ## 前提条件
 
