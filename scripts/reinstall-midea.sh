@@ -311,6 +311,36 @@ if "__version__" not in content:
     init_path.write_text(content, encoding="utf-8")
 PY
 
+	    # Fix upstream bug: MeijuCloud.login() doesn't extract uid from response.
+	    # SmartHomeCloud and MideaAirCloud both do this, but 美的美居 was missed.
+	    # Without uid, /v1/iot/secure/getToken returns empty (no tokenlist).
+	    echo "  > patch MeijuCloud.login() to extract uid"
+	    python3 - "${VENDOR_DIR}/midealocal/cloud.py" <<'PY'
+import sys
+cloud_path = sys.argv[1]
+content = open(cloud_path, encoding="utf-8").read()
+
+if "ha-phone meiju uid fix" not in content:
+    old = (
+        "                self._access_token = response[\"mdata\"][\"accessToken\"]\n"
+        "                self._security.set_aes_keys("
+    )
+    new = (
+        "                self._uid = response.get(\"uid\")  # ha-phone meiju uid fix\n"
+        "                self._access_token = response[\"mdata\"][\"accessToken\"]\n"
+        "                self._security.set_aes_keys("
+    )
+    if old in content:
+        content = content.replace(old, new)
+        with open(cloud_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] MeijuCloud uid extraction fixed")
+    else:
+        print("  [WARN] MeijuCloud uid pattern not found")
+else:
+    print("  [SKIP] MeijuCloud uid fix already applied")
+PY
+
     # --- Phase A.5: Patch config_flow.py ---
     # (1) Add "Login to Midea Cloud" → populate devices from cloud → pick device.
     # (2) Skip LAN discovery validation (UDP fails in container).
