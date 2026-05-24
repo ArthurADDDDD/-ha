@@ -311,24 +311,129 @@ if "__version__" not in content:
     init_path.write_text(content, encoding="utf-8")
 PY
 
-    # --- Phase A.5: Patch config_flow.py to skip LAN discovery validation ---
-    # Container UDP doesn't work, so discovery in async_step_manually always fails.
-    # Build a fake discovery result from user-provided values instead of erroring.
-    echo "  > patch config_flow.py: skip LAN discovery validation"
+    # --- Phase A.5: Patch config_flow.py ---
+    # (1) Add "Login to Midea Cloud" action so user can login to 美的美居.
+    # (2) Skip LAN discovery validation (UDP fails in container).
+    # (3) Use stored login_data for V3 token/key fetch instead of preset account.
+    echo "  > patch config_flow.py"
     python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
-import os, sys
+import os, sys, re
 
 component_dir = sys.argv[1]
-config_flow_path = os.path.join(component_dir, "config_flow.py")
-with open(config_flow_path, "r", encoding="utf-8") as f:
+cf = os.path.join(component_dir, "config_flow.py")
+with open(cf, "r", encoding="utf-8") as f:
     content = f.read()
 
-if "ha-phone manual discovery bypass" in content:
-    print("  [SKIP] config_flow.py already patched")
+changed = False
+
+# --- Patch 1: Add "login" to ADD_WAY dict ---
+if "ha-phone ADD_WAY login" not in content:
+    old_add_way = '''ADD_WAY = {
+    "discovery": "Discover automatically",
+    "manually": "Configure manually",
+    "list": "List all appliances only",
+    "cache": "Remove login cache",
+}'''
+    new_add_way = '''ADD_WAY = {
+    "discovery": "Discover automatically",
+    "manually": "Configure manually",
+    "login": "Login to Midea Cloud",  # ha-phone ADD_WAY login
+    "list": "List all appliances only",
+    "cache": "Remove login cache",
+}'''
+    if old_add_way in content:
+        content = content.replace(old_add_way, new_add_way)
+        changed = True
+        print("  [OK] ADD_WAY +login")
+    else:
+        print("  [WARN] ADD_WAY pattern not found")
 else:
-    # Replace the discovery validation block that returns "invalid_device_ip"
-    # Use flexible whitespace to match regardless of upstream indentation style
-    import re
+    print("  [SKIP] ADD_WAY already patched")
+
+# --- Patch 2: Add "login" handler in async_step_user ---
+if "ha-phone login action" not in content:
+    old_action = (
+        'if user_input["action"] == "manually":\n'
+        '                self.found_device = {}\n'
+        '                return await self.async_step_manually()'
+    )
+    new_action = (
+        'if user_input["action"] == "login":  # ha-phone login action\n'
+        '                self.found_device = {}\n'
+        '                self._login_for_manual = True\n'
+        '                return await self.async_step_login()\n'
+        '            if user_input["action"] == "manually":\n'
+        '                self.found_device = {}\n'
+        '                return await self.async_step_manually()'
+    )
+    if old_action in content:
+        content = content.replace(old_action, new_action)
+        changed = True
+        print("  [OK] async_step_user +login action")
+    else:
+        print("  [WARN] async_step_user login action pattern not found")
+else:
+    print("  [SKIP] async_step_user already patched")
+
+# --- Patch 3: Patch async_step_login return to support manual flow ---
+if "ha-phone login return manual" not in content:
+    old_return = (
+        '# return to next step after login pass\n'
+        '                return await self.async_step_auto()'
+    )
+    new_return = (
+        '# return to next step after login pass\n'
+        '                if getattr(self, "_login_for_manual", False):  # ha-phone login return manual\n'
+        '                    return await self.async_step_manually()\n'
+        '                return await self.async_step_auto()'
+    )
+    if old_return in content:
+        content = content.replace(old_return, new_return)
+        changed = True
+        print("  [OK] async_step_login return routing")
+    else:
+        print("  [WARN] async_step_login return pattern not found")
+else:
+    print("  [SKIP] async_step_login already patched")
+
+# --- Patch 4: Use stored login_data in async_step_manually for V3 token/key ---
+if "ha-phone stored login_data" not in content:
+    old_login = (
+        '# init cloud with preset account\n'
+        '                result = await self._check_cloud_login()\n'
+        '                if not result:\n'
+        '                    return await self.async_step_manually(\n'
+        '                        error="Perset account login failed!",\n'
+        '                    )'
+    )
+    new_login = (
+        '# init cloud: try stored login_data first, fall back to preset\n'
+        '                login_data = self.hass.data.get(DOMAIN, {}).get("login_data", {})  # ha-phone stored login_data\n'
+        '                if login_data:\n'
+        '                    result = await self._check_cloud_login(\n'
+        '                        cloud_name=login_data.get(CONF_SERVER),\n'
+        '                        account=login_data.get(CONF_ACCOUNT),\n'
+        '                        password=login_data.get(CONF_PASSWORD),\n'
+        '                        force_login=True,\n'
+        '                    )\n'
+        '                else:\n'
+        '                    result = await self._check_cloud_login()\n'
+        '                if not result:\n'
+        '                    return await self.async_step_manually(\n'
+        '                        error="Preset account login failed!",\n'
+        '                    )'
+    )
+    if old_login in content:
+        content = content.replace(old_login, new_login)
+        changed = True
+        print("  [OK] async_step_manually stored login_data")
+    else:
+        print("  [WARN] async_step_manually login_data pattern not found")
+else:
+    print("  [SKIP] async_step_manually already patched")
+
+# --- Patch 5: Skip LAN discovery validation ---
+if "ha-phone manual discovery bypass" not in content:
     needle = (
         r"(\s*# discover result MUST exist\n"
         r"\s*if len\(self\.devices\) != 1:\n"
@@ -355,11 +460,19 @@ else:
             f"{i1}}}"
         )
         content = content.replace(m.group(1), replacement)
-        with open(config_flow_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print("  [OK] config_flow.py patched")
+        changed = True
+        print("  [OK] discovery bypass")
     else:
-        print("  [WARN] config_flow.py pattern not found, patch not applied")
+        print("  [WARN] discovery bypass pattern not found")
+else:
+    print("  [SKIP] discovery bypass already patched")
+
+if changed:
+    with open(cf, "w", encoding="utf-8") as f:
+        f.write(content)
+    print("  [OK] config_flow.py patched successfully")
+else:
+    print("  [OK] config_flow.py already fully patched")
 PY
 
     # --- Phase B: Vendor pycryptodome (Crypto) from bundled tarball ---
