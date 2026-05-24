@@ -13,6 +13,9 @@ MIDEA_IMPL="${MIDEA_IMPL:-mill}"
 MILL_REPO="https://github.com/mill1000/midea-ac-py.git"
 MILL_TMP="${HOME}/.cache/midea-ac-py"
 MILL_TMP_NEW="${MILL_TMP}.new.$$"
+MSMART_REPO="https://github.com/mill1000/midea-msmart.git"
+MSMART_TMP="${HOME}/.cache/midea-msmart"
+MSMART_TMP_NEW="${MSMART_TMP}.new.$$"
 
 LEGACY_REPO_PRIMARY="https://github.com/wuwentao/midea_ac_lan.git"
 LEGACY_REPO_FALLBACK="https://github.com/wuwentao/midea_lan.git"
@@ -77,6 +80,76 @@ if [ "$MIDEA_IMPL" = "mill" ]; then
 
     cp -a "${MILL_TMP}/custom_components/midea_ac" "${CUSTOM_COMPONENTS}/midea_ac"
     echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_ac"
+
+    echo "  > fetch mill1000/midea-msmart"
+    MSMART_OK=0
+    if [ -d "${MSMART_TMP}/.git" ]; then
+        cd "$MSMART_TMP"
+        if git pull --ff-only 2>/dev/null; then
+            MSMART_OK=1
+        fi
+    fi
+    if [ "$MSMART_OK" -eq 0 ]; then
+        rm -rf "$MSMART_TMP_NEW"
+        if git clone --depth 1 "$MSMART_REPO" "$MSMART_TMP_NEW" 2>&1; then
+            rm -rf "$MSMART_TMP"
+            mv "$MSMART_TMP_NEW" "$MSMART_TMP"
+            MSMART_OK=1
+        fi
+    fi
+    rm -rf "$MSMART_TMP_NEW" 2>/dev/null || true
+    if [ "$MSMART_OK" -eq 0 ] && [ ! -d "${MSMART_TMP}/.git" ]; then
+        echo "  [ERROR] unable to fetch ${MSMART_REPO}"
+        exit 1
+    fi
+
+    echo "  > vendor msmart into midea_ac"
+    VENDOR_DIR="${CUSTOM_COMPONENTS}/midea_ac/_vendor"
+    rm -rf "$VENDOR_DIR"
+    mkdir -p "$VENDOR_DIR"
+    if [ -d "${MSMART_TMP}/msmart" ]; then
+        cp -a "${MSMART_TMP}/msmart" "$VENDOR_DIR/"
+    elif [ -d "${MSMART_TMP}/src/msmart" ]; then
+        cp -a "${MSMART_TMP}/src/msmart" "$VENDOR_DIR/"
+    else
+        echo "  [ERROR] msmart module path not found in ${MSMART_TMP}"
+        exit 1
+    fi
+
+    echo "  > patch midea_ac manifest and vendor import path"
+    python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
+import json
+import os
+import sys
+
+component_dir = sys.argv[1]
+manifest_path = os.path.join(component_dir, "manifest.json")
+with open(manifest_path, "r", encoding="utf-8") as f:
+    manifest = json.load(f)
+
+requirements = manifest.get("requirements", [])
+manifest["requirements"] = [req for req in requirements if not req.startswith("msmart-ng")]
+
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+init_path = os.path.join(component_dir, "__init__.py")
+with open(init_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+bootstrap = (
+    "import os\n"
+    "import sys\n"
+    "# ha-phone vendor bootstrap\n"
+    "_HA_PHONE_VENDOR = os.path.join(os.path.dirname(__file__), \"_vendor\")\n"
+    "if _HA_PHONE_VENDOR not in sys.path:\n"
+    "    sys.path.insert(0, _HA_PHONE_VENDOR)\n\n"
+)
+if "# ha-phone vendor bootstrap" not in content:
+    with open(init_path, "w", encoding="utf-8") as f:
+        f.write(bootstrap + content)
+PY
 
     echo "  > apply msmart version import compatibility patch"
     python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
