@@ -312,9 +312,10 @@ if "__version__" not in content:
 PY
 
     # --- Phase A.5: Patch config_flow.py ---
-    # (1) Add "Login to Midea Cloud" action so user can login to 美的美居.
+    # (1) Add "Login to Midea Cloud" → populate devices from cloud → pick device.
     # (2) Skip LAN discovery validation (UDP fails in container).
     # (3) Use stored login_data for V3 token/key fetch instead of preset account.
+    # (4) Allow IP override for cloud-loaded devices (IP unknown until user provides).
     echo "  > patch config_flow.py"
     python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
 import os, sys, re
@@ -328,21 +329,21 @@ changed = False
 
 # --- Patch 1: Add "login" to ADD_WAY dict ---
 if "ha-phone ADD_WAY login" not in content:
-    old_add_way = '''ADD_WAY = {
+    old = '''ADD_WAY = {
     "discovery": "Discover automatically",
     "manually": "Configure manually",
     "list": "List all appliances only",
     "cache": "Remove login cache",
 }'''
-    new_add_way = '''ADD_WAY = {
+    new = '''ADD_WAY = {
     "discovery": "Discover automatically",
     "manually": "Configure manually",
     "login": "Login to Midea Cloud",  # ha-phone ADD_WAY login
     "list": "List all appliances only",
     "cache": "Remove login cache",
 }'''
-    if old_add_way in content:
-        content = content.replace(old_add_way, new_add_way)
+    if old in content:
+        content = content.replace(old, new)
         changed = True
         print("  [OK] ADD_WAY +login")
     else:
@@ -352,12 +353,12 @@ else:
 
 # --- Patch 2: Add "login" handler in async_step_user ---
 if "ha-phone login action" not in content:
-    old_action = (
+    old = (
         'if user_input["action"] == "manually":\n'
         '                self.found_device = {}\n'
         '                return await self.async_step_manually()'
     )
-    new_action = (
+    new = (
         'if user_input["action"] == "login":  # ha-phone login action\n'
         '                self.found_device = {}\n'
         '                self._login_for_manual = True\n'
@@ -366,8 +367,8 @@ if "ha-phone login action" not in content:
         '                self.found_device = {}\n'
         '                return await self.async_step_manually()'
     )
-    if old_action in content:
-        content = content.replace(old_action, new_action)
+    if old in content:
+        content = content.replace(old, new)
         changed = True
         print("  [OK] async_step_user +login action")
     else:
@@ -375,30 +376,97 @@ if "ha-phone login action" not in content:
 else:
     print("  [SKIP] async_step_user already patched")
 
-# --- Patch 3: Patch async_step_login return to support manual flow ---
-if "ha-phone login return manual" not in content:
-    old_return = (
+# --- Patch 3: Populate devices from cloud after login, then go to device picker ---
+if "ha-phone populate from cloud" not in content:
+    old = (
         '# return to next step after login pass\n'
         '                return await self.async_step_auto()'
     )
-    new_return = (
+    new = (
         '# return to next step after login pass\n'
-        '                if getattr(self, "_login_for_manual", False):  # ha-phone login return manual\n'
+        '                if getattr(self, "_login_for_manual", False):  # ha-phone populate from cloud\n'
+        '                    all_devices = await self.cloud.list_appliances(home_id=None)\n'
+        '                    if all_devices:\n'
+        '                        self.devices = {}\n'
+        '                        for did, info in all_devices.items():\n'
+        '                            self.devices[did] = {\n'
+        '                                CONF_DEVICE_ID: did,\n'
+        '                                CONF_TYPE: info.get("type", 0xAC),\n'
+        '                                CONF_PROTOCOL: 3,\n'
+        '                                CONF_IP_ADDRESS: "",\n'
+        '                                CONF_PORT: 6444,\n'
+        '                                CONF_MODEL: info.get("model") or info.get("sn8", "Unknown"),\n'
+        '                            }\n'
+        '                        self.available_device = {}\n'
+        '                        for did, dev in self.devices.items():\n'
+        '                            if not self._already_configured(str(did), dev[CONF_IP_ADDRESS]):\n'
+        '                                dinfo = all_devices[did]\n'
+        '                                dtype = self.supports.get(dev.get(CONF_TYPE), "Unknown")\n'
+        '                                self.available_device[did] = (\n'
+        "                                    f\"{dinfo.get('name', did)} [{dtype}] ({did})\"\n"
+        '                                )\n'
+        '                        if self.available_device:\n'
+        '                            return await self.async_step_auto()\n'
         '                    return await self.async_step_manually()\n'
         '                return await self.async_step_auto()'
     )
-    if old_return in content:
-        content = content.replace(old_return, new_return)
+    if old in content:
+        content = content.replace(old, new)
         changed = True
-        print("  [OK] async_step_login return routing")
+        print("  [OK] cloud device population")
     else:
         print("  [WARN] async_step_login return pattern not found")
 else:
-    print("  [SKIP] async_step_login already patched")
+    print("  [SKIP] cloud population already patched")
+
+# --- Patch 3.5: Skip V3 key test in async_step_auto for cloud-loaded devices (no IP yet) ---
+if "ha-phone skip key test no-ip" not in content:
+    old = (
+        '            # MUST get a auth passed token/key for v3 device, disable add before pass\n'
+        '            if device.get(CONF_PROTOCOL) == ProtocolVersion.V3:'
+    )
+    new = (
+        '            # MUST get a auth passed token/key for v3 device, disable add before pass\n'
+        '            if device.get(CONF_PROTOCOL) == ProtocolVersion.V3 and device.get(CONF_IP_ADDRESS):  # ha-phone skip key test no-ip'
+    )
+    if old in content:
+        content = content.replace(old, new)
+        changed = True
+        print("  [OK] skip key test for cloud devices")
+    else:
+        print("  [WARN] skip key test pattern not found")
+else:
+    print("  [SKIP] skip key test already patched")
+
+# --- Patch 3.6: Allow IP override for cloud-loaded devices in async_step_manually ---
+if "ha-phone ip override cloud" not in content:
+    old = (
+        'device = self.devices[device_id]\n'
+        '            if user_input[CONF_IP_ADDRESS] != device.get(CONF_IP_ADDRESS):\n'
+        '                return await self.async_step_manually(\n'
+        '                    error=f"ip_address MUST be {device.get(CONF_IP_ADDRESS)}",\n'
+        '                )'
+    )
+    new = (
+        'device = self.devices[device_id]\n'
+        '            # ha-phone ip override cloud: allow user to set IP for cloud-loaded devices\n'
+        '            if device.get(CONF_IP_ADDRESS) not in ("", "auto", None) and user_input[CONF_IP_ADDRESS] != device.get(CONF_IP_ADDRESS):\n'
+        '                return await self.async_step_manually(\n'
+        '                    error=f"ip_address MUST be {device.get(CONF_IP_ADDRESS)}",\n'
+        '                )'
+    )
+    if old in content:
+        content = content.replace(old, new)
+        changed = True
+        print("  [OK] IP override for cloud devices")
+    else:
+        print("  [WARN] IP override pattern not found")
+else:
+    print("  [SKIP] IP override already patched")
 
 # --- Patch 4: Use stored login_data in async_step_manually for V3 token/key ---
 if "ha-phone stored login_data" not in content:
-    old_login = (
+    old = (
         '# init cloud with preset account\n'
         '                result = await self._check_cloud_login()\n'
         '                if not result:\n'
@@ -406,7 +474,7 @@ if "ha-phone stored login_data" not in content:
         '                        error="Perset account login failed!",\n'
         '                    )'
     )
-    new_login = (
+    new = (
         '# init cloud: try stored login_data first, fall back to preset\n'
         '                login_data = self.hass.data.get(DOMAIN, {}).get("login_data", {})  # ha-phone stored login_data\n'
         '                if login_data:\n'
@@ -423,8 +491,8 @@ if "ha-phone stored login_data" not in content:
         '                        error="Preset account login failed!",\n'
         '                    )'
     )
-    if old_login in content:
-        content = content.replace(old_login, new_login)
+    if old in content:
+        content = content.replace(old, new)
         changed = True
         print("  [OK] async_step_manually stored login_data")
     else:
