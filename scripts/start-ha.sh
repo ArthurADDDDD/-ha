@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# scripts/start-ha.sh - start Home Assistant in foreground
+# scripts/start-ha.sh - start Home Assistant in foreground (simple mode)
 if [ -z "${BASH_VERSION:-}" ]; then
     exec bash "$0" "$@"
 fi
@@ -19,14 +19,19 @@ source "${HA_BASE}/source.env" 2>/dev/null || {
     exit 1
 }
 
-if is_port_listening 8123; then
-    echo "[INFO] Home Assistant is already running on port 8123"
-    echo "  URL: http://$(get_lan_ip):8123"
-    echo "  Logs: udocker logs -f ${CONTAINER_NAME}"
-    exit 0
+# Restart mode: if a stale/running instance exists, kill it first then continue startup.
+if command -v udocker >/dev/null 2>&1; then
+    if is_port_listening 8123 || udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
+        echo "[INFO] Existing HA instance detected, stopping it before start ..."
+        timeout 12 udocker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
+        if udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
+            echo "[WARN] Graceful stop did not finish, force-removing container ..."
+            udocker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+        fi
+        sleep 1
+    fi
 fi
 
-# If this is the first run and container ROOT is absent, pre-create once.
 if command -v udocker_create >/dev/null 2>&1; then
     if [ ! -d "${HOME}/.udocker/containers/${CONTAINER_NAME}/ROOT" ]; then
         echo "[INFO] First start: pre-creating container ${CONTAINER_NAME} ..."
@@ -43,36 +48,8 @@ echo ""
 echo "========================================="
 echo "  Starting Home Assistant ..."
 echo "  Waiting for log line: on 0.0.0.0:8123"
-echo "  Press Ctrl+C to stop"
+echo "  Press Ctrl+C to interrupt foreground logs"
 echo "========================================="
 echo ""
 
-IN_CLEANUP=0
-HA_BOOT_PID=0
-
-cleanup_on_interrupt() {
-    if [ "$IN_CLEANUP" -eq 1 ]; then
-        return
-    fi
-    IN_CLEANUP=1
-    trap - INT TERM
-    echo ""
-    log_warn "Interrupt received, stopping Home Assistant ..."
-    if [ "$HA_BOOT_PID" -gt 0 ]; then
-        kill -TERM "$HA_BOOT_PID" 2>/dev/null || true
-    fi
-    bash "${SCRIPT_DIR}/stop-ha.sh" || true
-    if [ "$HA_BOOT_PID" -gt 0 ]; then
-        wait "$HA_BOOT_PID" 2>/dev/null || true
-    fi
-    exit 130
-}
-
-trap cleanup_on_interrupt INT TERM
-
-bash "${HA_BASE}/home-assistant-core.sh" &
-HA_BOOT_PID=$!
-wait "$HA_BOOT_PID"
-EXIT_CODE=$?
-trap - INT TERM
-exit "$EXIT_CODE"
+exec bash "${HA_BASE}/home-assistant-core.sh"
