@@ -60,4 +60,9 @@ echo "  Press Ctrl+C to interrupt foreground logs"
 echo "========================================="
 echo ""
 
+# Termux/proot often forbids hardlink in uv build cache; force copy mode to avoid
+# "Operation not permitted (os error 1)" when HA installs integration requirements.
+export UV_LINK_MODE=copy
+export UV_NO_CACHE=1
+
 exec bash "${HA_BASE}/home-assistant-core.sh"
