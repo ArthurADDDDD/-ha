@@ -325,24 +325,39 @@ if "ha-phone manual discovery bypass" in content:
     print("  [SKIP] config_flow.py already patched")
 else:
     # Replace the discovery validation block that returns "invalid_device_ip"
-    old_block = (
-        "            # discover result MUST exist\n"
-        "            if len(self.devices) != 1:\n"
-        "                return await self.async_step_manually(error=\"invalid_device_ip\")"
+    # Use flexible whitespace to match regardless of upstream indentation style
+    import re
+    needle = (
+        r"(\s*# discover result MUST exist\n"
+        r"\s*if len\(self\.devices\) != 1:\n"
+        r"\s*return await self\.async_step_manually\(error=\"invalid_device_ip\"\))"
     )
-    new_block = (
-        "            # discover result MUST exist\n"
-        "            if len(self.devices) != 1:\n"
-        "                # ha-phone manual discovery bypass: UDP may fail in container\n"
-        "                self.devices = {\n"
-        "                    device_id: {\n"
-        "                        CONF_DEVICE_ID: device_id,\n"
-        "                        CONF_IP_ADDRESS: ip,\n"
-        "                        CONF_PORT: user_input.get(CONF_PORT, 6444),\n"
-        "                        CONF_PROTOCOL: user_input.get(CONF_PROTOCOL, 3),\n"
-        "                    }\n"
-        "                }"
-    )
+    m = re.search(needle, content)
+    if m:
+        indent = len(m.group(1).splitlines()[1]) - len(m.group(1).splitlines()[1].lstrip())
+        i0 = " " * indent
+        i1 = " " * (indent + 4)
+        i2 = " " * (indent + 8)
+        i3 = " " * (indent + 12)
+        replacement = (
+            f"{i0}# discover result MUST exist\n"
+            f"{i0}if len(self.devices) != 1:\n"
+            f"{i1}# ha-phone manual discovery bypass: UDP may fail in container\n"
+            f"{i1}self.devices = {{\n"
+            f"{i2}device_id: {{\n"
+            f"{i3}CONF_DEVICE_ID: device_id,\n"
+            f"{i3}CONF_IP_ADDRESS: ip,\n"
+            f"{i3}CONF_PORT: user_input.get(CONF_PORT, 6444),\n"
+            f"{i3}CONF_PROTOCOL: user_input.get(CONF_PROTOCOL, 3),\n"
+            f"{i2}}},\n"
+            f"{i1}}}"
+        )
+        content = content.replace(m.group(1), replacement)
+        with open(config_flow_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] config_flow.py patched")
+    else:
+        print("  [WARN] config_flow.py pattern not found, patch not applied")
     if old_block in content:
         content = content.replace(old_block, new_block)
         with open(config_flow_path, "w", encoding="utf-8") as f:
