@@ -42,6 +42,7 @@ ha-phone/
 │   ├── stop-ha.sh             停止 HA
 │   ├── show-version.sh        查看版本
 │   ├── check-ha.sh            健康检查
+│   ├── clean.sh                 清理现有安装
 │   └── reinstall-xiaomi-home.sh  重装 Xiaomi Home
 └── lib/
     └── utils.sh               公共函数
@@ -56,10 +57,27 @@ sh scripts/check-ha.sh          # 健康检查（容器/端口/集成/日志）
 sh scripts/show-version.sh      # 查看所有版本
 ```
 
+## 重装 / 彻底清理
+
+```bash
+# 查看当前状态
+sh scripts/check-ha.sh
+
+# 选择性清理（推荐先看说明再执行）
+sh scripts/clean.sh             # 查看清理选项
+sh scripts/clean.sh --force     # 清理容器+镜像+基项目（保留 haconfig）
+sh scripts/clean.sh --full      # 以上全部+清空 haconfig（保留备份）
+
+# 清理后重新安装
+sh scripts/install.sh
+```
+
+备份始终保留在 `~/HomeAssistant-Termux.bak.*`。
+
 ## 遇到问题
 
 ```bash
-sh scripts/repair.sh            # 自动诊断并修复
+sh scripts/repair.sh                 # 自动诊断并修复
 sh scripts/reinstall-xiaomi-home.sh  # 仅重装 Xiaomi Home
 ```
 
