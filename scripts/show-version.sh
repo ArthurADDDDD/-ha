@@ -4,32 +4,29 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/utils.sh"
 
-HA_BASE="${HOME}/HomeAssistant-Termux"
-HA_CONFIG="${HA_BASE}/haconfig"
-CONTAINER="home-assistant-core"
-
 echo ""
 echo "========================================="
 echo "  ha-phone 版本信息"
 echo "========================================="
 echo ""
 
-# HA 版本
-if [ -d "$HA_BASE" ]; then
-    cd "$HA_BASE"
-    source "${HA_BASE}/source.env" 2>/dev/null || true
-
-    if is_ha_running 2>/dev/null; then
-        echo "  HA 版本       : $(udocker run --entrypoint 'bash -c' "$CONTAINER" 'python3 -m homeassistant --version' 2>/dev/null || echo 'unknown')"
-        echo "  Python 版本   : $(udocker run --entrypoint 'bash -c' "$CONTAINER" 'python3 --version' 2>/dev/null || echo 'unknown')"
-    else
-        echo "  HA 版本       : (HA 未运行)"
-        echo "  Python 版本   : (HA 未运行)"
-    fi
-
-    echo "  Docker 镜像   : $(udocker images 2>/dev/null | grep homeassistant | awk '{print $2}' || echo 'unknown')"
+# HA 版本（从日志读取）
+LOG_FILE="${HA_CONFIG}/home-assistant.log"
+if [ -f "$LOG_FILE" ]; then
+    HA_VER=$(grep -oP 'Home Assistant \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
+    PY_VER=$(grep -oP 'Python \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
+    [ -n "$HA_VER" ] && echo "  HA 版本       : ${HA_VER}" || echo "  HA 版本       : 未知"
+    [ -n "$PY_VER" ] && echo "  Python 版本   : ${PY_VER}" || echo "  Python 版本   : 未知"
 else
-    echo "  HA 版本       : 未安装"
+    echo "  HA 版本       : 未知（日志文件不存在）"
+    echo "  Python 版本   : 未知"
+fi
+
+# 镜像标签
+if command -v udocker >/dev/null 2>&1; then
+    source "${HA_BASE}/source.env" 2>/dev/null || true
+    IMG_TAG=$(udocker images 2>/dev/null | grep homeassistant | awk '{print $2}' | head -1)
+    [ -n "$IMG_TAG" ] && echo "  Docker 镜像   : ${IMG_TAG}"
 fi
 
 # udocker
@@ -53,16 +50,29 @@ else
     echo "  Xiaomi Home   : 未安装"
 fi
 
+# Midea
+MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
+if [ -f "${MIDEA_DIR}/manifest.json" ]; then
+    MIDEA_VER=$(python3 -c "
+import json
+with open('${MIDEA_DIR}/manifest.json') as f:
+    d = json.load(f)
+print(d.get('version', 'unknown'))
+" 2>/dev/null || echo "parse_error")
+    echo "  Midea LAN     : ${MIDEA_VER}"
+else
+    echo "  Midea LAN     : 未安装"
+fi
+
 # 系统
 echo "  Termux        : $(termux-info 2>/dev/null | grep 'TERMUX_VERSION' | cut -d= -f2 || echo 'unknown')"
 echo "  Android       : $(getprop ro.build.version.release 2>/dev/null || echo 'unknown')"
 echo "  宿主          : $(getprop ro.product.model 2>/dev/null || echo 'unknown')"
+echo "  IP            : $(get_lan_ip)"
 
 # 仓库版本
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [ -d "${REPO_DIR}/.git" ]; then
-    echo "  ha-phone repo : $(cd "$REPO_DIR" && git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
+if [ -d "${SCRIPT_DIR}/../.git" ]; then
+    echo "  ha-phone repo : $(cd "${SCRIPT_DIR}/.." && git rev-parse --short HEAD 2>/dev/null || echo 'unknown')"
 fi
 
 echo ""

@@ -1,8 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ha-phone shared utilities
-# Do not source this file directly — use: source "$(dirname "$0")/../lib/utils.sh"
-
-set -euo pipefail
+# 使用: source "$(dirname "$0")/../lib/utils.sh"
 
 # ── colors ──────────────────────────────────────────────────────────────────
 C_RED='\033[0;31m'
@@ -19,11 +17,11 @@ log_ok()    { printf "${C_GREEN}[OK]${C_RESET}    %s\n" "$*"; }
 log_step()  { printf "\n${C_BLUE}==>${C_RESET} %s\n" "$*"; }
 
 # ── paths ───────────────────────────────────────────────────────────────────
-REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 HA_BASE="${HOME}/HomeAssistant-Termux"
 HA_CONFIG="${HA_BASE}/haconfig"
-OVERLAY_DIR="${REPO_DIR}/overlay"
 BAK_ROOT="${HA_BASE}/.bak"
+CONTAINER_NAME="home-assistant-core"
+IMAGE_NAME="homeassistant/home-assistant:stable"
 
 # ── file helpers ────────────────────────────────────────────────────────────
 ensure_dir() {
@@ -41,18 +39,63 @@ backup_file() {
     fi
 }
 
+# ── network helpers ─────────────────────────────────────────────────────────
+# Android/Termux 兼容的 IP 获取
+get_lan_ip() {
+    # 方法1: ip route (Android 7+)
+    local ip
+    ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法2: ip addr 扫 wlan
+    ip=$(ip addr show wlan0 2>/dev/null | grep -oP 'inet \K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法3: ifconfig 兜底
+    ip=$(ifconfig wlan0 2>/dev/null | grep -oP 'inet addr:\K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法4: hostname -I
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    echo "unknown"
+}
+
+# ── HA container helpers ─────────────────────────────────────────────────────
+# 用端口检测优先，udocker ps 做辅助
+is_ha_running() {
+    # 端口在监听 → 肯定在运行
+    if is_port_listening 8123; then
+        return 0
+    fi
+    # 端口不在但 udocker ps 看到容器 → 可能在启动中
+    if command -v udocker >/dev/null 2>&1 && udocker ps 2>/dev/null | grep -q "home-assistant-core"; then
+        return 0
+    fi
+    return 1
+}
+
+is_port_listening() {
+    local port="${1:-8123}"
+    # 方法1: ss (Termux 新版有)
+    ss -tlnp 2>/dev/null | grep -q ":${port} " && return 0
+    # 方法2: Python socket (最可靠)
+    python3 -c "
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(1)
+r = s.connect_ex(('127.0.0.1', ${port}))
+s.close()
+exit(r)
+" 2>/dev/null && return 0
+    # 方法3: netstat 兜底
+    netstat -tlnp 2>/dev/null | grep -q ":${port} " && return 0
+    return 1
+}
+
 # ── retry ───────────────────────────────────────────────────────────────────
-# Usage: retry <max_attempts> <delay_seconds> <command...>
 retry() {
     local max_attempts="$1"
     local delay="$2"
     shift 2
     local attempt=0
-    local cmd="$*"
 
     while [ $attempt -lt "$max_attempts" ]; do
         attempt=$((attempt + 1))
-        log_info "尝试 $attempt/$max_attempts: $cmd"
+        log_info "尝试 $attempt/$max_attempts: $*"
         if "$@"; then
             return 0
         fi
@@ -62,41 +105,11 @@ retry() {
             delay=$((delay * 2))
         fi
     done
-    log_error "重试 ${max_attempts} 次后仍然失败: $cmd"
+    log_error "重试 ${max_attempts} 次后仍然失败"
     return 1
-}
-
-# ── HA container helpers ─────────────────────────────────────────────────────
-is_ha_container_exists() {
-    udocker ps -a 2>/dev/null | grep -q "home-assistant-core" && return 0 || return 1
-}
-
-is_ha_running() {
-    udocker ps 2>/dev/null | grep -q "home-assistant-core" && return 0 || return 1
-}
-
-is_port_listening() {
-    local port="${1:-8123}"
-    ss -tlnp 2>/dev/null | grep -q ":${port} " && return 0 || return 1
 }
 
 # ── misc ────────────────────────────────────────────────────────────────────
 is_termux() {
-    [ -d "/data/data/com.termux" ] && return 0 || return 1
-}
-
-get_ha_version() {
-    if is_ha_running; then
-        udocker run --entrypoint "bash -c" home-assistant-core "python3 -m homeassistant --version" 2>/dev/null || echo "unknown"
-    else
-        echo "unknown (HA 未运行)"
-    fi
-}
-
-get_python_version_in_ha() {
-    if is_ha_running; then
-        udocker run --entrypoint "bash -c" home-assistant-core "python3 --version" 2>/dev/null || echo "unknown"
-    else
-        echo "unknown (HA 未运行)"
-    fi
+    [ -d "/data/data/com.termux" ] || [ -d "/data/data/com.termux/files" ]
 }

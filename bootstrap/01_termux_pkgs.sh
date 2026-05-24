@@ -24,12 +24,12 @@ echo "========================================="
 echo ""
 
 for pkg in "${PKGS[@]}"; do
-    printf "  ▶ 安装 %-20s ... " "$pkg"
-    if pkg install -y "$pkg" >/dev/null 2>&1; then
-        echo "OK"
+    echo ""
+    echo "  ── 安装 ${pkg} ──"
+    if pkg install -y "$pkg"; then
         OK_COUNT=$((OK_COUNT + 1))
     else
-        echo "FAILED"
+        echo "  [WARN] ${pkg} 安装失败，继续..."
         FAILED="${FAILED}  - ${pkg}\n"
     fi
 done
