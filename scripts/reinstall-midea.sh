@@ -176,12 +176,15 @@ if "# ha-phone vendor bootstrap" not in content:
 
     if insert_at < len(lines) and lines[insert_at].startswith(('"""', "'''")):
         quote = lines[insert_at][:3]
-        insert_at += 1
-        while insert_at < len(lines):
-            if quote in lines[insert_at]:
-                insert_at += 1
-                break
+        if quote in lines[insert_at][3:]:
             insert_at += 1
+        else:
+            insert_at += 1
+            while insert_at < len(lines):
+                if quote in lines[insert_at]:
+                    insert_at += 1
+                    break
+                insert_at += 1
 
     while insert_at < len(lines) and lines[insert_at].strip() == "":
         insert_at += 1
@@ -198,6 +201,23 @@ if "# ha-phone vendor bootstrap" not in content:
     with open(init_path, "w", encoding="utf-8") as f:
         f.write("".join(lines))
 PY
+
+    echo "  > syntax check patched midea_ac"
+    python3 -c "
+import py_compile, sys, pathlib
+component_dir = pathlib.Path('${CUSTOM_COMPONENTS}/midea_ac')
+errors = []
+for f in component_dir.rglob('*.py'):
+    try:
+        py_compile.compile(str(f), doraise=True)
+    except py_compile.PyCompileError as e:
+        errors.append(str(e))
+if errors:
+    for e in errors:
+        print(f'SYNTAX ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+print('  [OK] all Python files pass syntax check')
+"
 else
     echo "  > fetch legacy midea_ac_lan"
     FETCH_OK=0
