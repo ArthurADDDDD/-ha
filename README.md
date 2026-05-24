@@ -43,7 +43,8 @@ ha-phone/
 │   ├── show-version.sh        查看版本
 │   ├── check-ha.sh            健康检查
 │   ├── clean.sh                 清理现有安装
-│   └── reinstall-xiaomi-home.sh  重装 Xiaomi Home
+│   ├── reinstall-xiaomi-home.sh  重装 Xiaomi Home
+│   └── reinstall-midea.sh       美的美居（可选）
 └── lib/
     └── utils.sh               公共函数
 ```
@@ -73,6 +74,16 @@ sh scripts/install.sh
 ```
 
 备份始终保留在 `~/HomeAssistant-Termux.bak.*`。
+
+## 可选集成
+
+```bash
+# 小米（已默认安装）
+sh scripts/reinstall-xiaomi-home.sh
+
+# 美的美居（可选，独立部署）
+sh scripts/reinstall-midea.sh       # 空调/热水器/洗衣机（局域网）
+```
 
 ## 遇到问题
 
