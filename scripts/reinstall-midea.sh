@@ -360,59 +360,16 @@ else:
         print("  [WARN] config_flow.py pattern not found, patch not applied")
 PY
 
-    # --- Phase B: Vendor pycryptodome (Crypto) from pre-built wheel ---
-    echo "  > vendor pycryptodome (Crypto) from pre-built wheel"
-    PYCRYPTO_TMP="${HOME}/.cache/pycryptodome_wheel"
-    rm -rf "$PYCRYPTO_TMP"
-    mkdir -p "$PYCRYPTO_TMP"
-
-    WHEEL_URL=$(python3 -c "
-import json, urllib.request
-data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/pycryptodome/json', timeout=30).read())
-for u in data['urls']:
-    fn = u['filename']
-    if 'cp37-abi3' in fn and 'manylinux' in fn and 'aarch64' in fn:
-        print(u['url'])
-        break
-" 2>/dev/null)
-
-    if [ -z "$WHEEL_URL" ]; then
-        echo "  [WARN] could not find aarch64 pycryptodome wheel via PyPI API"
-        WHEEL_URL=$(python3 -c "
-import json, urllib.request
-data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/pycryptodome/json', timeout=30).read())
-for u in data['urls']:
-    fn = u['filename']
-    if 'cp37-abi3' in fn and 'manylinux' in fn and ('aarch64' in fn or 'arm64' in fn):
-        print(u['url'])
-        break
-" 2>/dev/null)
-    fi
-
-    if [ -z "$WHEEL_URL" ]; then
-        echo "  [WARN] no matching wheel found, trying pip download fallback"
-        python3 -m pip download --only-binary :all: --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp pycryptodome -d "$PYCRYPTO_TMP" 2>/dev/null || true
-        WHEEL_FILE=$(ls "$PYCRYPTO_TMP"/*.whl 2>/dev/null | head -1)
+    # --- Phase B: Vendor pycryptodome (Crypto) from bundled tarball ---
+    echo "  > vendor pycryptodome (Crypto) from bundled tarball"
+    CRYPTO_TARBALL="${SCRIPT_DIR}/../lib/Crypto.tar.gz"
+    if [ -f "$CRYPTO_TARBALL" ]; then
+        tar -xzf "$CRYPTO_TARBALL" -C "$VENDOR_DIR"
+        echo "  [OK] Crypto vendored from bundled tarball"
     else
-        echo "  > downloading: $WHEEL_URL"
-        curl -sL --connect-timeout 30 --max-time 120 -o "$PYCRYPTO_TMP/pycryptodome.whl" "$WHEEL_URL" || true
-        WHEEL_FILE="$PYCRYPTO_TMP/pycryptodome.whl"
-    fi
-
-    if [ -n "$WHEEL_FILE" ] && [ -f "$WHEEL_FILE" ]; then
-        unzip -qo "$WHEEL_FILE" "Crypto/**" -d "$PYCRYPTO_TMP/extract" 2>/dev/null || true
-        if [ -d "$PYCRYPTO_TMP/extract/Crypto" ]; then
-            cp -a "$PYCRYPTO_TMP/extract/Crypto" "$VENDOR_DIR/"
-            echo "  [OK] Crypto vendored from wheel"
-        else
-            echo "  [ERROR] failed to extract Crypto/ from pycryptodome wheel"
-            exit 1
-        fi
-    else
-        echo "  [ERROR] unable to download pycryptodome wheel for aarch64"
+        echo "  [ERROR] Crypto tarball not found: ${CRYPTO_TARBALL}"
         exit 1
     fi
-    rm -rf "$PYCRYPTO_TMP"
 
     # --- Phase C: Vendor pure-Python deps ---
     echo "  > vendor pure-Python dependencies (defusedxml, ifaddr)"
