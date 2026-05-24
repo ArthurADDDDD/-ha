@@ -105,6 +105,7 @@ sh scripts/reinstall-xiaomi-home.sh  # 仅重装 Xiaomi Home
 5. **xiaomi_home MIPS mDNS SIGSEGV** — `miot/miot_mdns.py` 的 `MipsService` 通过 `AsyncServiceBrowser` 监听多播，Android proot 多播套接字会 SIGSEGV(11) 导致 HA 整体崩溃；中国区 cloud_polling 不依赖局域网发现，补丁短路 `init_async/deinit_async`（`scripts/patch-xiaomi-home.sh`，Patch C）
 6. **xiaomi_home ping SIGSEGV** — `miot/miot_network.py` 的 `__ping_async` 用 `subprocess` 调用 `ping` 二进制创建 ICMP raw socket，同样触发 proot SIGSEGV；短路直接返回 TIMEOUT，HTTP 探测（TCP）仍可用（`scripts/patch-xiaomi-home.sh`，Patch D）
 7. **xiaomi_home init_async SIGSEGV** — Patch D 之后启动期仍崩在 `init_async` 的 http 探测 / `psutil.net_if_addrs()` C 扩展上（C 层段错绕过 Python try/except）；直接短路 `init_async`，置 `network_status=True` 跳过探测（`scripts/patch-xiaomi-home.sh`，Patch E）
+8. **xiaomi_home OAuth redirect URL** — `miot/const.py` 把 `OAUTH_REDIRECT_URL` 写死成 `http://homeassistant.local:8123`，普通浏览器无法 mDNS 解析；改成手机 LAN IP（`scripts/patch-xiaomi-home.sh`，Patch F，启动时从 `get_lan_ip` 自动取）
 
 ## 前提条件
 

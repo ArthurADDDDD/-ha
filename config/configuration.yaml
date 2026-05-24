@@ -1,6 +1,9 @@
 # Home Assistant configuration for ha-phone
 # Xiaomi Home 通过 UI config_flow 添加，不需在此配置
 
+homeassistant:
+  language: zh-Hans
+
 default_config:
 
 http:
