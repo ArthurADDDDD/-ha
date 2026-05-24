@@ -121,8 +121,8 @@ echo "── 7. 版本信息 ──"
 # 从启动日志解析版本（不创建容器）
 LOG_FILE="${HA_CONFIG}/home-assistant.log"
 if [ -f "$LOG_FILE" ]; then
-    HA_VER=$(grep -oP 'Home Assistant \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
-    PY_VER=$(grep -oP 'Python \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
+    HA_VER=$(sed -n 's/.*Home Assistant \([0-9.]*\).*/\1/p' "$LOG_FILE" 2>/dev/null | tail -1)
+    PY_VER=$(sed -n 's/.*Python \([0-9.]*\).*/\1/p' "$LOG_FILE" 2>/dev/null | tail -1)
     [ -n "$HA_VER" ] && echo "   HA 版本       : ${HA_VER}" || echo "   HA 版本       : (无法从日志解析)"
     [ -n "$PY_VER" ] && echo "   Python 版本   : ${PY_VER}" || echo "   Python 版本   : (无法从日志解析)"
 else

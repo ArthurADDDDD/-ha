@@ -42,15 +42,23 @@ backup_file() {
 # ── network helpers ─────────────────────────────────────────────────────────
 # Android/Termux 兼容的 IP 获取
 get_lan_ip() {
-    # 方法1: ip route (Android 7+)
     local ip
-    ip=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
-    # 方法2: ip addr 扫 wlan
-    ip=$(ip addr show wlan0 2>/dev/null | grep -oP 'inet \K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
-    # 方法3: ifconfig 兜底
-    ip=$(ifconfig wlan0 2>/dev/null | grep -oP 'inet addr:\K[\d.]+' 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
-    # 方法4: hostname -I
+
+    # 方法1: ip route (Android 7+)
+    ip=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+
+    # 方法2: ip addr 扫 wlan0
+    ip=$(ip addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+
+    # 方法3: ifconfig (两种格式兼容)
+    ip=$(ifconfig wlan0 2>/dev/null | awk '/inet / {gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+
+    # 方法4: termux-wifi-connectioninfo
+    ip=$(termux-wifi-connectioninfo 2>/dev/null | grep 'ip' | awk -F'"' '{print $4}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+
+    # 方法5: hostname -I
     ip=$(hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+
     echo "unknown"
 }
 

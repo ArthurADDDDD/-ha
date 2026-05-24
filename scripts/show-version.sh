@@ -13,8 +13,8 @@ echo ""
 # HA 版本（从日志读取）
 LOG_FILE="${HA_CONFIG}/home-assistant.log"
 if [ -f "$LOG_FILE" ]; then
-    HA_VER=$(grep -oP 'Home Assistant \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
-    PY_VER=$(grep -oP 'Python \K[\d.]+' "$LOG_FILE" 2>/dev/null | tail -1 || echo "")
+    HA_VER=$(sed -n 's/.*Home Assistant \([0-9.]*\).*/\1/p' "$LOG_FILE" 2>/dev/null | tail -1)
+    PY_VER=$(sed -n 's/.*Python \([0-9.]*\).*/\1/p' "$LOG_FILE" 2>/dev/null | tail -1)
     [ -n "$HA_VER" ] && echo "  HA 版本       : ${HA_VER}" || echo "  HA 版本       : 未知"
     [ -n "$PY_VER" ] && echo "  Python 版本   : ${PY_VER}" || echo "  Python 版本   : 未知"
 else
