@@ -2,6 +2,8 @@
 # scripts/reinstall-midea.sh - install/update Midea integration
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 HA_BASE="${HOME}/HomeAssistant-Termux"
 HA_CONFIG="${HA_BASE}/haconfig"
 CUSTOM_COMPONENTS="${HA_CONFIG}/custom_components"
