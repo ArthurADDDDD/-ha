@@ -21,6 +21,9 @@ LEGACY_REPO_PRIMARY="https://github.com/wuwentao/midea_ac_lan.git"
 LEGACY_REPO_FALLBACK="https://github.com/wuwentao/midea_lan.git"
 LEGACY_TMP="${HOME}/.cache/midea_ac_lan"
 LEGACY_TMP_NEW="${LEGACY_TMP}.new.$$"
+MIDEA_LOCAL_REPO="https://github.com/rokam/midea-local.git"
+MIDEA_LOCAL_TMP="${HOME}/.cache/midea-local"
+MIDEA_LOCAL_TMP_NEW="${MIDEA_LOCAL_TMP}.new.$$"
 
 echo ""
 echo "========================================="
@@ -248,16 +251,226 @@ else
         exit 1
     fi
 
+    LEGACY_DEPLOY_DIR=""
     if [ -d "${LEGACY_TMP}/custom_components/midea_ac_lan" ]; then
-        cp -a "${LEGACY_TMP}/custom_components/midea_ac_lan" "${CUSTOM_COMPONENTS}/midea_ac_lan"
-        echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_ac_lan"
+        LEGACY_DEPLOY_DIR="${CUSTOM_COMPONENTS}/midea_ac_lan"
+        cp -a "${LEGACY_TMP}/custom_components/midea_ac_lan" "$LEGACY_DEPLOY_DIR"
+        echo "  [OK] deployed: ${LEGACY_DEPLOY_DIR}"
     elif [ -d "${LEGACY_TMP}/custom_components/midea_lan" ]; then
-        cp -a "${LEGACY_TMP}/custom_components/midea_lan" "${CUSTOM_COMPONENTS}/midea_lan"
-        echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_lan"
+        LEGACY_DEPLOY_DIR="${CUSTOM_COMPONENTS}/midea_lan"
+        cp -a "${LEGACY_TMP}/custom_components/midea_lan" "$LEGACY_DEPLOY_DIR"
+        echo "  [OK] deployed: ${LEGACY_DEPLOY_DIR}"
     else
         echo "  [ERROR] legacy component path not found in ${LEGACY_TMP}"
         exit 1
     fi
+
+    VENDOR_DIR="${LEGACY_DEPLOY_DIR}/_vendor"
+    rm -rf "$VENDOR_DIR"
+    mkdir -p "$VENDOR_DIR"
+
+    # --- Phase A: Vendor midealocal from GitHub ---
+    echo "  > fetch rokam/midea-local"
+    LOCAL_OK=0
+    if [ -d "${MIDEA_LOCAL_TMP}/.git" ]; then
+        cd "$MIDEA_LOCAL_TMP"
+        if git pull --ff-only 2>/dev/null; then
+            LOCAL_OK=1
+        fi
+    fi
+    if [ "$LOCAL_OK" -eq 0 ]; then
+        rm -rf "$MIDEA_LOCAL_TMP_NEW"
+        if git clone --depth 1 "$MIDEA_LOCAL_REPO" "$MIDEA_LOCAL_TMP_NEW" 2>&1; then
+            rm -rf "$MIDEA_LOCAL_TMP"
+            mv "$MIDEA_LOCAL_TMP_NEW" "$MIDEA_LOCAL_TMP"
+            LOCAL_OK=1
+        fi
+    fi
+    rm -rf "$MIDEA_LOCAL_TMP_NEW" 2>/dev/null || true
+    if [ "$LOCAL_OK" -eq 0 ] && [ ! -d "${MIDEA_LOCAL_TMP}/midealocal" ]; then
+        echo "  [ERROR] unable to fetch ${MIDEA_LOCAL_REPO}"
+        exit 1
+    fi
+    cp -a "${MIDEA_LOCAL_TMP}/midealocal" "$VENDOR_DIR/"
+    echo "  [OK] vendored midealocal"
+
+    echo "  > patch vendored midealocal __version__"
+    python3 - "${VENDOR_DIR}/midealocal/__init__.py" <<'PY'
+import pathlib, sys
+init_path = pathlib.Path(sys.argv[1])
+content = init_path.read_text(encoding="utf-8")
+if "__version__" not in content:
+    content += (
+        "\ntry:\n"
+        "    from .version import __version__\n"
+        "except ImportError:\n"
+        "    __version__ = 'unknown'\n"
+    )
+    init_path.write_text(content, encoding="utf-8")
+PY
+
+    # --- Phase B: Vendor pycryptodome (Crypto) from pre-built wheel ---
+    echo "  > vendor pycryptodome (Crypto) from pre-built wheel"
+    PYCRYPTO_TMP="${HOME}/.cache/pycryptodome_wheel"
+    rm -rf "$PYCRYPTO_TMP"
+    mkdir -p "$PYCRYPTO_TMP"
+
+    WHEEL_URL=$(python3 -c "
+import json, urllib.request
+data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/pycryptodome/json', timeout=30).read())
+for u in data['urls']:
+    fn = u['filename']
+    if 'cp37-abi3' in fn and 'manylinux' in fn and 'aarch64' in fn:
+        print(u['url'])
+        break
+" 2>/dev/null)
+
+    if [ -z "$WHEEL_URL" ]; then
+        echo "  [WARN] could not find aarch64 pycryptodome wheel via PyPI API"
+        WHEEL_URL=$(python3 -c "
+import json, urllib.request
+data = json.loads(urllib.request.urlopen('https://pypi.org/pypi/pycryptodome/json', timeout=30).read())
+for u in data['urls']:
+    fn = u['filename']
+    if 'cp37-abi3' in fn and 'manylinux' in fn and ('aarch64' in fn or 'arm64' in fn):
+        print(u['url'])
+        break
+" 2>/dev/null)
+    fi
+
+    if [ -z "$WHEEL_URL" ]; then
+        echo "  [WARN] no matching wheel found, trying pip download fallback"
+        python3 -m pip download --only-binary :all: --platform manylinux2014_aarch64 --python-version 3.12 --implementation cp pycryptodome -d "$PYCRYPTO_TMP" 2>/dev/null || true
+        WHEEL_FILE=$(ls "$PYCRYPTO_TMP"/*.whl 2>/dev/null | head -1)
+    else
+        echo "  > downloading: $WHEEL_URL"
+        curl -sL --connect-timeout 30 --max-time 120 -o "$PYCRYPTO_TMP/pycryptodome.whl" "$WHEEL_URL" || true
+        WHEEL_FILE="$PYCRYPTO_TMP/pycryptodome.whl"
+    fi
+
+    if [ -n "$WHEEL_FILE" ] && [ -f "$WHEEL_FILE" ]; then
+        unzip -qo "$WHEEL_FILE" "Crypto/**" -d "$PYCRYPTO_TMP/extract" 2>/dev/null || true
+        if [ -d "$PYCRYPTO_TMP/extract/Crypto" ]; then
+            cp -a "$PYCRYPTO_TMP/extract/Crypto" "$VENDOR_DIR/"
+            echo "  [OK] Crypto vendored from wheel"
+        else
+            echo "  [ERROR] failed to extract Crypto/ from pycryptodome wheel"
+            exit 1
+        fi
+    else
+        echo "  [ERROR] unable to download pycryptodome wheel for aarch64"
+        exit 1
+    fi
+    rm -rf "$PYCRYPTO_TMP"
+
+    # --- Phase C: Vendor pure-Python deps ---
+    echo "  > vendor pure-Python dependencies (defusedxml, ifaddr)"
+    python3 -m pip install --target "$VENDOR_DIR" --no-deps --no-compile defusedxml ifaddr 2>&1 | tail -3
+    echo "  [OK] defusedxml + ifaddr vendored"
+
+    # --- Phase D: Create commonregex safety shim ---
+    echo "  > create commonregex shim"
+    cat > "${VENDOR_DIR}/commonregex.py" <<'PY'
+"""Minimal commonregex shim for Home Assistant Termux deployment."""
+from __future__ import annotations
+import re
+
+class CommonRegex:
+    def __init__(self, text: str) -> None:
+        self._text = text or ""
+        self.emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", self._text)
+        self.links = re.findall(r"https?://[^\s]+", self._text)
+        self.ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", self._text)
+        self.phones = re.findall(r"\+?\d[\d\s().-]{6,}\d", self._text)
+
+    def __getattr__(self, _name: str):
+        return []
+PY
+
+    # --- Phase E: Strip midea-local from manifest.json ---
+    echo "  > strip midea-local from manifest.json"
+    python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
+import json, os, sys
+component_dir = sys.argv[1]
+manifest_path = os.path.join(component_dir, "manifest.json")
+with open(manifest_path, "r", encoding="utf-8") as f:
+    manifest = json.load(f)
+requirements = manifest.get("requirements", [])
+manifest["requirements"] = [req for req in requirements if not req.startswith("midea-local")]
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+PY
+
+    # --- Phase F: Insert vendor bootstrap into __init__.py ---
+    echo "  > insert vendor bootstrap into __init__.py"
+    python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
+import os, sys
+
+component_dir = sys.argv[1]
+init_path = os.path.join(component_dir, "__init__.py")
+with open(init_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+bootstrap = (
+    "import os\n"
+    "import sys\n"
+    "# ha-phone vendor bootstrap\n"
+    "_HA_PHONE_VENDOR = os.path.join(os.path.dirname(__file__), \"_vendor\")\n"
+    "if _HA_PHONE_VENDOR not in sys.path:\n"
+    "    sys.path.insert(0, _HA_PHONE_VENDOR)\n\n"
+)
+if "# ha-phone vendor bootstrap" not in content:
+    lines = content.splitlines(keepends=True)
+    insert_at = 0
+    if lines and lines[0].startswith("#!"):
+        insert_at = 1
+
+    if insert_at < len(lines) and lines[insert_at].startswith(('"""', "'''")):
+        quote = lines[insert_at][:3]
+        if quote in lines[insert_at][3:]:
+            insert_at += 1
+        else:
+            insert_at += 1
+            while insert_at < len(lines):
+                if quote in lines[insert_at]:
+                    insert_at += 1
+                    break
+                insert_at += 1
+
+    while insert_at < len(lines) and lines[insert_at].strip() == "":
+        insert_at += 1
+
+    if insert_at < len(lines) and lines[insert_at].startswith("from __future__ import "):
+        insert_at += 1
+        while insert_at < len(lines) and lines[insert_at].startswith("from __future__ import "):
+            insert_at += 1
+
+    while insert_at < len(lines) and lines[insert_at].strip() == "":
+        insert_at += 1
+
+    lines.insert(insert_at, bootstrap)
+    with open(init_path, "w", encoding="utf-8") as f:
+        f.write("".join(lines))
+PY
+
+    # --- Phase G: Syntax check vendored files ---
+    echo "  > syntax check vendored midea_ac_lan"
+    python3 -c "
+import py_compile, sys, pathlib
+vendor_dir = pathlib.Path('${VENDOR_DIR}')
+errors = []
+for f in vendor_dir.rglob('*.py'):
+    try:
+        py_compile.compile(str(f), doraise=True)
+    except py_compile.PyCompileError as e:
+        errors.append(str(e))
+if errors:
+    for e in errors:
+        print(f'SYNTAX ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+print('  [OK] all Python files pass syntax check')
+"
 fi
 
 MANIFEST_PATH="$(find "${CUSTOM_COMPONENTS}" -maxdepth 2 -type f -name manifest.json | grep -E 'midea_ac|midea_ac_lan|midea_lan' | head -1 || true)"
