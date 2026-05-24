@@ -77,6 +77,34 @@ if [ "$MIDEA_IMPL" = "mill" ]; then
 
     cp -a "${MILL_TMP}/custom_components/midea_ac" "${CUSTOM_COMPONENTS}/midea_ac"
     echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_ac"
+
+    echo "  > apply msmart version import compatibility patch"
+    python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
+import pathlib
+import sys
+
+component_dir = pathlib.Path(sys.argv[1])
+needle = "from msmart import __version__ as msmart_version"
+replacement = (
+    "try:\n"
+    "    from msmart import __version__ as msmart_version\n"
+    "except Exception:\n"
+    "    try:\n"
+    "        from importlib.metadata import version as _pkg_version\n"
+    "        msmart_version = _pkg_version('msmart-ng')\n"
+    "    except Exception:\n"
+    "        msmart_version = 'unknown'"
+)
+
+patched = 0
+for py_file in component_dir.rglob("*.py"):
+    content = py_file.read_text(encoding="utf-8")
+    if needle in content:
+        py_file.write_text(content.replace(needle, replacement), encoding="utf-8")
+        patched += 1
+
+print(f"  [OK] compatibility patch applied to {patched} file(s)")
+PY
 else
     echo "  > fetch legacy midea_ac_lan"
     FETCH_OK=0
