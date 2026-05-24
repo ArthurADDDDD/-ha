@@ -17,6 +17,9 @@ if [ -d "${HA_CONFIG}/custom_components/midea_ac_lan" ]; then
     MIDEA_DIR="${HA_CONFIG}/custom_components/midea_ac_lan"
 elif [ -d "${HA_CONFIG}/custom_components/midea_lan" ]; then
     MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
+elif [ -d "${HA_CONFIG}/custom_components/midea_ac" ]; then
+    log_info "midea_ac (mill1000) detected; legacy midea_lan patch not required"
+    exit 0
 fi
 
 if [ -z "$MIDEA_DIR" ]; then

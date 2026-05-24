@@ -1,24 +1,29 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# scripts/reinstall-midea.sh - install/update Midea LAN custom component
+# scripts/reinstall-midea.sh - install/update Midea integration
 set -euo pipefail
 
 HA_BASE="${HOME}/HomeAssistant-Termux"
 HA_CONFIG="${HA_BASE}/haconfig"
 CUSTOM_COMPONENTS="${HA_CONFIG}/custom_components"
-MIDEA_REPO_PRIMARY="https://github.com/wuwentao/midea_ac_lan.git"
-MIDEA_REPO_FALLBACK="https://github.com/wuwentao/midea_lan.git"
-MIDEA_TMP="${HOME}/.cache/midea_ac_lan"
-MIDEA_TMP_NEW="${MIDEA_TMP}.new.$$"
-MIDEA_LOCAL_REPO="https://github.com/midea-lan/midea-local.git"
-MIDEA_LOCAL_TMP="${HOME}/.cache/midea-local"
-MIDEA_LOCAL_TMP_NEW="${MIDEA_LOCAL_TMP}.new.$$"
-BAK_DIR="${HA_BASE}/.bak/midea_lan_$(date +%Y%m%d_%H%M%S)"
-MIDEA_DIR=""
+BAK_DIR="${HA_BASE}/.bak/midea_$(date +%Y%m%d_%H%M%S)"
+
+# Default to mill1000/midea-ac-py because it avoids the midea-local/commonregex chain.
+MIDEA_IMPL="${MIDEA_IMPL:-mill}"
+
+MILL_REPO="https://github.com/mill1000/midea-ac-py.git"
+MILL_TMP="${HOME}/.cache/midea-ac-py"
+MILL_TMP_NEW="${MILL_TMP}.new.$$"
+
+LEGACY_REPO_PRIMARY="https://github.com/wuwentao/midea_ac_lan.git"
+LEGACY_REPO_FALLBACK="https://github.com/wuwentao/midea_lan.git"
+LEGACY_TMP="${HOME}/.cache/midea_ac_lan"
+LEGACY_TMP_NEW="${LEGACY_TMP}.new.$$"
 
 echo ""
 echo "========================================="
-echo "  Optional: Install Midea LAN integration"
+echo "  Install Midea integration"
 echo "========================================="
+echo "  implementation: ${MIDEA_IMPL}"
 echo ""
 
 if [ ! -d "$HA_BASE" ]; then
@@ -28,204 +33,97 @@ fi
 
 mkdir -p "$CUSTOM_COMPONENTS"
 
-if [ -d "${CUSTOM_COMPONENTS}/midea_ac_lan" ]; then
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/midea_ac_lan"
-elif [ -d "${CUSTOM_COMPONENTS}/midea_lan" ]; then
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/midea_lan"
-else
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/midea_ac_lan"
-fi
-
-if [ -d "${CUSTOM_COMPONENTS}/midea_ac_lan" ] || [ -d "${CUSTOM_COMPONENTS}/midea_lan" ]; then
-    echo "  > backup existing component to ${BAK_DIR}"
-    mkdir -p "$BAK_DIR"
-    [ -d "${CUSTOM_COMPONENTS}/midea_ac_lan" ] && cp -a "${CUSTOM_COMPONENTS}/midea_ac_lan" "$BAK_DIR/" || true
-    [ -d "${CUSTOM_COMPONENTS}/midea_lan" ] && cp -a "${CUSTOM_COMPONENTS}/midea_lan" "$BAK_DIR/" || true
-fi
+echo "  > backup current midea components"
+mkdir -p "$BAK_DIR"
+for d in midea_ac midea_ac_lan midea_lan; do
+    if [ -d "${CUSTOM_COMPONENTS}/${d}" ]; then
+        cp -a "${CUSTOM_COMPONENTS}/${d}" "$BAK_DIR/"
+    fi
+done
 
 echo "  > remove old deployment"
-[ -d "${CUSTOM_COMPONENTS}/midea_ac_lan" ] && rm -rf "${CUSTOM_COMPONENTS}/midea_ac_lan" || true
-[ -d "${CUSTOM_COMPONENTS}/midea_lan" ] && rm -rf "${CUSTOM_COMPONENTS}/midea_lan" || true
+for d in midea_ac midea_ac_lan midea_lan; do
+    [ -d "${CUSTOM_COMPONENTS}/${d}" ] && rm -rf "${CUSTOM_COMPONENTS:?}/${d}"
+done
 find "$CUSTOM_COMPONENTS" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
-echo "  > fetch upstream repository"
-PULL_OK=0
-if [ -d "${MIDEA_TMP}/.git" ]; then
-    cd "$MIDEA_TMP"
-    if git pull --ff-only 2>/dev/null; then
-        PULL_OK=1
-    else
-        echo "  [WARN] git pull failed, trying fresh clone ..."
-    fi
-fi
-
-if [ "$PULL_OK" -eq 0 ]; then
-    rm -rf "$MIDEA_TMP_NEW"
-    if git clone --depth 1 "$MIDEA_REPO_PRIMARY" "$MIDEA_TMP_NEW" 2>&1; then
-        rm -rf "$MIDEA_TMP"
-        mv "$MIDEA_TMP_NEW" "$MIDEA_TMP"
-        PULL_OK=1
-    else
-        echo "  [WARN] primary repo failed, trying fallback repo ..."
-        rm -rf "$MIDEA_TMP_NEW"
-        if git clone --depth 1 "$MIDEA_REPO_FALLBACK" "$MIDEA_TMP_NEW" 2>&1; then
-            rm -rf "$MIDEA_TMP"
-            mv "$MIDEA_TMP_NEW" "$MIDEA_TMP"
-            PULL_OK=1
+if [ "$MIDEA_IMPL" = "mill" ]; then
+    echo "  > fetch mill1000/midea-ac-py"
+    FETCH_OK=0
+    if [ -d "${MILL_TMP}/.git" ]; then
+        cd "$MILL_TMP"
+        if git pull --ff-only 2>/dev/null; then
+            FETCH_OK=1
         fi
     fi
-fi
+    if [ "$FETCH_OK" -eq 0 ]; then
+        rm -rf "$MILL_TMP_NEW"
+        if git clone --depth 1 "$MILL_REPO" "$MILL_TMP_NEW" 2>&1; then
+            rm -rf "$MILL_TMP"
+            mv "$MILL_TMP_NEW" "$MILL_TMP"
+            FETCH_OK=1
+        fi
+    fi
+    rm -rf "$MILL_TMP_NEW" 2>/dev/null || true
+    if [ "$FETCH_OK" -eq 0 ] && [ ! -d "${MILL_TMP}/.git" ]; then
+        echo "  [ERROR] unable to fetch ${MILL_REPO}"
+        exit 1
+    fi
 
-rm -rf "$MIDEA_TMP_NEW" 2>/dev/null || true
+    if [ ! -d "${MILL_TMP}/custom_components/midea_ac" ]; then
+        echo "  [ERROR] midea_ac path not found in ${MILL_TMP}"
+        exit 1
+    fi
 
-if [ "$PULL_OK" -eq 0 ]; then
-    if [ -d "${MIDEA_TMP}/.git" ]; then
-        echo "  [WARN] network failed; using existing local cache: ${MIDEA_TMP}"
+    cp -a "${MILL_TMP}/custom_components/midea_ac" "${CUSTOM_COMPONENTS}/midea_ac"
+    echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_ac"
+else
+    echo "  > fetch legacy midea_ac_lan"
+    FETCH_OK=0
+    if [ -d "${LEGACY_TMP}/.git" ]; then
+        cd "$LEGACY_TMP"
+        if git pull --ff-only 2>/dev/null; then
+            FETCH_OK=1
+        fi
+    fi
+    if [ "$FETCH_OK" -eq 0 ]; then
+        rm -rf "$LEGACY_TMP_NEW"
+        if git clone --depth 1 "$LEGACY_REPO_PRIMARY" "$LEGACY_TMP_NEW" 2>&1; then
+            rm -rf "$LEGACY_TMP"
+            mv "$LEGACY_TMP_NEW" "$LEGACY_TMP"
+            FETCH_OK=1
+        else
+            rm -rf "$LEGACY_TMP_NEW"
+            if git clone --depth 1 "$LEGACY_REPO_FALLBACK" "$LEGACY_TMP_NEW" 2>&1; then
+                rm -rf "$LEGACY_TMP"
+                mv "$LEGACY_TMP_NEW" "$LEGACY_TMP"
+                FETCH_OK=1
+            fi
+        fi
+    fi
+    rm -rf "$LEGACY_TMP_NEW" 2>/dev/null || true
+    if [ "$FETCH_OK" -eq 0 ] && [ ! -d "${LEGACY_TMP}/.git" ]; then
+        echo "  [ERROR] unable to fetch legacy midea repository"
+        exit 1
+    fi
+
+    if [ -d "${LEGACY_TMP}/custom_components/midea_ac_lan" ]; then
+        cp -a "${LEGACY_TMP}/custom_components/midea_ac_lan" "${CUSTOM_COMPONENTS}/midea_ac_lan"
+        echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_ac_lan"
+    elif [ -d "${LEGACY_TMP}/custom_components/midea_lan" ]; then
+        cp -a "${LEGACY_TMP}/custom_components/midea_lan" "${CUSTOM_COMPONENTS}/midea_lan"
+        echo "  [OK] deployed: ${CUSTOM_COMPONENTS}/midea_lan"
     else
-        echo "  [ERROR] unable to fetch midea repository from both sources"
-        echo "  [HINT] check network access to github.com and retry"
+        echo "  [ERROR] legacy component path not found in ${LEGACY_TMP}"
         exit 1
     fi
 fi
-echo "  [OK] repository is ready"
 
-echo "  > deploy to custom_components"
-SRC=""
-if [ -d "${MIDEA_TMP}/custom_components/midea_ac_lan" ]; then
-    SRC="${MIDEA_TMP}/custom_components/midea_ac_lan"
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/midea_ac_lan"
-elif [ -d "${MIDEA_TMP}/custom_components/midea_lan" ]; then
-    SRC="${MIDEA_TMP}/custom_components/midea_lan"
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/midea_lan"
-elif [ -f "${MIDEA_TMP}/manifest.json" ]; then
-    DOMAIN="$(python3 - <<'PY'
-import json, os
-p = os.path.expanduser("~/.cache/midea_ac_lan/manifest.json")
-try:
-    with open(p, "r", encoding="utf-8") as f:
-        d = json.load(f)
-    print(d.get("domain", "midea_ac_lan"))
-except Exception:
-    print("midea_ac_lan")
-PY
-)"
-    SRC="${MIDEA_TMP}"
-    MIDEA_DIR="${CUSTOM_COMPONENTS}/${DOMAIN}"
-else
-    echo "  [ERROR] component source path not found in ${MIDEA_TMP}"
-    exit 1
-fi
-
-cp -a "$SRC" "$MIDEA_DIR"
-echo "  [OK] deployed: ${MIDEA_DIR}"
-
-echo "  > prepare bundled midea-local runtime"
-LOCAL_OK=0
-if [ -d "${MIDEA_LOCAL_TMP}/.git" ]; then
-    cd "$MIDEA_LOCAL_TMP"
-    if git pull --ff-only 2>/dev/null; then
-        LOCAL_OK=1
-    else
-        echo "  [WARN] midea-local cache update failed, trying fresh clone ..."
-    fi
-fi
-
-if [ "$LOCAL_OK" -eq 0 ]; then
-    rm -rf "$MIDEA_LOCAL_TMP_NEW"
-    if git clone --depth 1 "$MIDEA_LOCAL_REPO" "$MIDEA_LOCAL_TMP_NEW" 2>&1; then
-        rm -rf "$MIDEA_LOCAL_TMP"
-        mv "$MIDEA_LOCAL_TMP_NEW" "$MIDEA_LOCAL_TMP"
-        LOCAL_OK=1
-    fi
-fi
-
-rm -rf "$MIDEA_LOCAL_TMP_NEW" 2>/dev/null || true
-
-if [ "$LOCAL_OK" -eq 0 ] && [ ! -d "${MIDEA_LOCAL_TMP}/midealocal" ]; then
-    echo "  [ERROR] unable to fetch bundled midea-local source"
-    echo "  [HINT] retry when github.com is reachable"
-    exit 1
-fi
-
-VENDOR_DIR="${MIDEA_DIR}/_vendor"
-rm -rf "$VENDOR_DIR"
-mkdir -p "$VENDOR_DIR"
-cp -a "${MIDEA_LOCAL_TMP}/midealocal" "$VENDOR_DIR/"
-
-COMMONREGEX_SHIM="${VENDOR_DIR}/commonregex.py"
-if [ ! -f "$COMMONREGEX_SHIM" ]; then
-    cat > "$COMMONREGEX_SHIM" <<'PY'
-"""Minimal commonregex shim for Home Assistant Termux deployment."""
-
-from __future__ import annotations
-
-import re
-
-
-class CommonRegex:
-    """Small subset used for safe redaction paths in midea-local."""
-
-    def __init__(self, text: str) -> None:
-        self._text = text or ""
-        self.emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", self._text)
-        self.links = re.findall(r"https?://[^\s]+", self._text)
-        self.ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", self._text)
-        self.phones = re.findall(r"\+?\d[\d\s().-]{6,}\d", self._text)
-
-    def __getattr__(self, _name: str):
-        return []
-PY
-fi
-
-python3 - "$MIDEA_DIR" <<'PY'
+MANIFEST_PATH="$(find "${CUSTOM_COMPONENTS}" -maxdepth 2 -type f -name manifest.json | grep -E 'midea_ac|midea_ac_lan|midea_lan' | head -1 || true)"
+if [ -n "$MANIFEST_PATH" ]; then
+    python3 -c "
 import json
-import os
-import sys
-
-component_dir = sys.argv[1]
-manifest_path = os.path.join(component_dir, "manifest.json")
-with open(manifest_path, "r", encoding="utf-8") as f:
-    manifest = json.load(f)
-
-requirements = manifest.get("requirements", [])
-manifest["requirements"] = [req for req in requirements if not req.startswith("midea-local")]
-
-with open(manifest_path, "w", encoding="utf-8") as f:
-    json.dump(manifest, f, ensure_ascii=False, indent=2)
-    f.write("\n")
-
-init_path = os.path.join(component_dir, "__init__.py")
-with open(init_path, "r", encoding="utf-8") as f:
-    content = f.read()
-
-bootstrap = (
-    "import os\n"
-    "import sys\n"
-    "# ha-phone vendor bootstrap\n"
-    "_HA_PHONE_VENDOR = os.path.join(os.path.dirname(__file__), \"_vendor\")\n"
-    "if _HA_PHONE_VENDOR not in sys.path:\n"
-    "    sys.path.insert(0, _HA_PHONE_VENDOR)\n\n"
-)
-
-if "# ha-phone vendor bootstrap" not in content:
-    with open(init_path, "w", encoding="utf-8") as f:
-        f.write(bootstrap + content)
-PY
-
-echo "  [OK] bundled runtime deployed into ${VENDOR_DIR}"
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-bash "${SCRIPT_DIR}/patch-midea.sh" || echo "  [WARN] patch-midea.sh failed"
-
-MANIFEST="${MIDEA_DIR}/manifest.json"
-if [ ! -f "$MANIFEST" ]; then
-    echo "  [ERROR] manifest.json missing after deployment"
-    exit 1
-fi
-
-python3 -c "
-import json, sys
-with open('$MANIFEST', 'r', encoding='utf-8') as f:
+with open('$MANIFEST_PATH', 'r', encoding='utf-8') as f:
     data = json.load(f)
 print('  [OK] domain  :', data.get('domain', 'missing'))
 print('  [OK] version :', data.get('version', 'missing'))
@@ -233,14 +131,19 @@ req = data.get('requirements', [])
 print('  [OK] requirements:', len(req))
 for r in req:
     print('      -', r)
-" || exit 1
+" || true
+fi
 
 echo ""
 echo "========================================="
 echo "  Midea integration deployment complete"
 echo "========================================="
 echo "  Next:"
-echo "    1) sh scripts/start-ha.sh"
-echo "    2) HA UI -> Settings -> Devices & Services -> Add integration -> Midea"
-echo "    3) If discovery is empty, manually input device IP"
+echo "    1) bash scripts/start-ha.sh"
+echo "    2) HA UI -> Settings -> Devices & Services -> Add integration"
+echo "    3) Search: Midea AC"
+echo ""
+echo "  Switch implementation:"
+echo "    MIDEA_IMPL=mill   bash scripts/reinstall-midea.sh   (default)"
+echo "    MIDEA_IMPL=legacy bash scripts/reinstall-midea.sh"
 echo ""

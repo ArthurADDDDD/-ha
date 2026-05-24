@@ -51,7 +51,9 @@ else
 fi
 
 # Midea
-if [ -d "${HA_CONFIG}/custom_components/midea_ac_lan" ]; then
+if [ -d "${HA_CONFIG}/custom_components/midea_ac" ]; then
+    MIDEA_DIR="${HA_CONFIG}/custom_components/midea_ac"
+elif [ -d "${HA_CONFIG}/custom_components/midea_ac_lan" ]; then
     MIDEA_DIR="${HA_CONFIG}/custom_components/midea_ac_lan"
 elif [ -d "${HA_CONFIG}/custom_components/midea_lan" ]; then
     MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
