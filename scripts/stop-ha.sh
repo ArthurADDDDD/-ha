@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# scripts/stop-ha.sh - stop Home Assistant gracefully
+# scripts/stop-ha.sh - best-effort stop without blocking
 if [ -z "${BASH_VERSION:-}" ]; then
     exec bash "$0" "$@"
 fi
@@ -7,11 +7,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/utils.sh"
-
-FORCE_REMOVE=0
-if [ "${1:-}" = "--force" ]; then
-    FORCE_REMOVE=1
-fi
 
 if [ ! -d "$HA_BASE" ]; then
     echo "[ERROR] HomeAssistant-Termux not found"
@@ -21,43 +16,31 @@ fi
 cd "$HA_BASE"
 source "${HA_BASE}/source.env" 2>/dev/null || true
 
-RUNNING=false
-is_port_listening 8123 && RUNNING=true
-if command -v udocker >/dev/null 2>&1 && udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-    RUNNING=true
-fi
-
-if ! $RUNNING; then
+if ! is_port_listening 8123 && ! pgrep -f "home-assistant-core.sh" >/dev/null 2>&1 && ! pgrep -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1; then
     echo "[INFO] Home Assistant is not running"
     exit 0
 fi
 
-echo "[INFO] Stopping Home Assistant ..."
+echo "[INFO] Stopping Home Assistant process ..."
+pkill -f "home-assistant-core.sh" >/dev/null 2>&1 || true
+pkill -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
 
-if command -v udocker >/dev/null 2>&1; then
-    udocker stop "$CONTAINER_NAME" 2>/dev/null || true
-
-    WAITED=0
-    while [ "$WAITED" -lt 30 ]; do
-        if ! udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-            echo "[OK] Home Assistant stopped"
-            exit 0
-        fi
-        sleep 1
-        WAITED=$((WAITED + 1))
-    done
-
-    echo "[WARN] Graceful stop timed out; container may still be running"
-    if [ "$FORCE_REMOVE" -eq 1 ]; then
-        echo "[WARN] --force enabled, removing container ${CONTAINER_NAME} ..."
-        udocker rm -f "$CONTAINER_NAME" 2>/dev/null || true
-    else
-        echo "[INFO] To force-remove container, run: bash scripts/stop-ha.sh --force"
+for _ in {1..12}; do
+    if ! is_port_listening 8123; then
+        echo "[OK] Home Assistant stopped"
+        exit 0
     fi
-fi
+    sleep 1
+done
 
-if command -v udocker >/dev/null 2>&1 && udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-    echo "[WARN] Home Assistant is still running"
+echo "[WARN] Graceful stop timed out, forcing kill ..."
+pkill -9 -f "home-assistant-core.sh" >/dev/null 2>&1 || true
+pkill -9 -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
+sleep 1
+
+if is_port_listening 8123; then
+    echo "[WARN] Port 8123 is still busy. Please run:"
+    echo "       ps -ef | grep -E 'home-assistant-core|udocker' | grep -v grep"
     exit 2
 fi
 

@@ -19,15 +19,23 @@ source "${HA_BASE}/source.env" 2>/dev/null || {
     exit 1
 }
 
-# Restart mode: if a stale/running instance exists, kill it first then continue startup.
-if command -v udocker >/dev/null 2>&1; then
-    if is_port_listening 8123 || udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-        echo "[INFO] Existing HA instance detected, stopping it before start ..."
-        timeout 12 udocker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
-        if udocker ps 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-            echo "[WARN] Graceful stop did not finish, force-removing container ..."
-            udocker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+# Restart mode: kill stale/running HA process before start, but do not recreate container by default.
+if is_port_listening 8123 || pgrep -f "home-assistant-core.sh" >/dev/null 2>&1 || pgrep -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1; then
+    echo "[INFO] Existing HA instance detected, killing old process before start ..."
+    pkill -f "home-assistant-core.sh" >/dev/null 2>&1 || true
+    pkill -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
+
+    for _ in {1..12}; do
+        if ! is_port_listening 8123; then
+            break
         fi
+        sleep 1
+    done
+
+    if is_port_listening 8123; then
+        echo "[WARN] Port 8123 still busy, sending SIGKILL ..."
+        pkill -9 -f "home-assistant-core.sh" >/dev/null 2>&1 || true
+        pkill -9 -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
         sleep 1
     fi
 fi
