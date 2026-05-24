@@ -475,7 +475,9 @@ if "ha-phone stored login_data" not in content:
         '                    )'
     )
     new = (
-        '# init cloud: try stored login_data first, fall back to preset\n'
+        '# ha-phone: update device IP from user input before fetching keys\n'
+        '                self.devices[int(user_input[CONF_DEVICE_ID])][CONF_IP_ADDRESS] = user_input[CONF_IP_ADDRESS]\n'
+        '                # init cloud: try stored login_data first, fall back to preset\n'
         '                login_data = self.hass.data.get(DOMAIN, {}).get("login_data", {})  # ha-phone stored login_data\n'
         '                if login_data:\n'
         '                    result = await self._check_cloud_login(\n'
