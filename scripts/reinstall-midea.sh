@@ -180,26 +180,35 @@ PY
     echo "  > apply msmart version import compatibility patch"
     python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
 import pathlib
+import re
 import sys
 
 component_dir = pathlib.Path(sys.argv[1])
-needle = "from msmart import __version__ as msmart_version"
-replacement = (
-    "try:\n"
-    "    from msmart import __version__ as msmart_version\n"
-    "except Exception:\n"
-    "    try:\n"
-    "        from importlib.metadata import version as _pkg_version\n"
-    "        msmart_version = _pkg_version('msmart-ng')\n"
-    "    except Exception:\n"
-    "        msmart_version = 'unknown'"
+pattern = re.compile(
+    r"^(?P<indent>[ \t]*)from msmart import __version__ as msmart_version$",
+    re.MULTILINE,
 )
 
 patched = 0
 for py_file in component_dir.rglob("*.py"):
     content = py_file.read_text(encoding="utf-8")
-    if needle in content:
-        py_file.write_text(content.replace(needle, replacement), encoding="utf-8")
+
+    def repl(match: re.Match[str]) -> str:
+        indent = match.group("indent")
+        return (
+            f"{indent}try:\n"
+            f"{indent}    from msmart import __version__ as msmart_version\n"
+            f"{indent}except Exception:\n"
+            f"{indent}    try:\n"
+            f"{indent}        from importlib.metadata import version as _pkg_version\n"
+            f"{indent}        msmart_version = _pkg_version('msmart-ng')\n"
+            f"{indent}    except Exception:\n"
+            f"{indent}        msmart_version = 'unknown'"
+        )
+
+    new_content, replaced = pattern.subn(repl, content)
+    if replaced:
+        py_file.write_text(new_content, encoding="utf-8")
         patched += 1
 
 print(f"  [OK] compatibility patch applied to {patched} file(s)")
