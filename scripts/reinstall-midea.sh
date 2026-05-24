@@ -9,6 +9,9 @@ MIDEA_REPO_PRIMARY="https://github.com/wuwentao/midea_ac_lan.git"
 MIDEA_REPO_FALLBACK="https://github.com/wuwentao/midea_lan.git"
 MIDEA_TMP="${HOME}/.cache/midea_ac_lan"
 MIDEA_TMP_NEW="${MIDEA_TMP}.new.$$"
+MIDEA_LOCAL_REPO="https://github.com/midea-lan/midea-local.git"
+MIDEA_LOCAL_TMP="${HOME}/.cache/midea-local"
+MIDEA_LOCAL_TMP_NEW="${MIDEA_LOCAL_TMP}.new.$$"
 BAK_DIR="${HA_BASE}/.bak/midea_lan_$(date +%Y%m%d_%H%M%S)"
 MIDEA_DIR=""
 
@@ -115,6 +118,101 @@ fi
 
 cp -a "$SRC" "$MIDEA_DIR"
 echo "  [OK] deployed: ${MIDEA_DIR}"
+
+echo "  > prepare bundled midea-local runtime"
+LOCAL_OK=0
+if [ -d "${MIDEA_LOCAL_TMP}/.git" ]; then
+    cd "$MIDEA_LOCAL_TMP"
+    if git pull --ff-only 2>/dev/null; then
+        LOCAL_OK=1
+    else
+        echo "  [WARN] midea-local cache update failed, trying fresh clone ..."
+    fi
+fi
+
+if [ "$LOCAL_OK" -eq 0 ]; then
+    rm -rf "$MIDEA_LOCAL_TMP_NEW"
+    if git clone --depth 1 "$MIDEA_LOCAL_REPO" "$MIDEA_LOCAL_TMP_NEW" 2>&1; then
+        rm -rf "$MIDEA_LOCAL_TMP"
+        mv "$MIDEA_LOCAL_TMP_NEW" "$MIDEA_LOCAL_TMP"
+        LOCAL_OK=1
+    fi
+fi
+
+rm -rf "$MIDEA_LOCAL_TMP_NEW" 2>/dev/null || true
+
+if [ "$LOCAL_OK" -eq 0 ] && [ ! -d "${MIDEA_LOCAL_TMP}/midealocal" ]; then
+    echo "  [ERROR] unable to fetch bundled midea-local source"
+    echo "  [HINT] retry when github.com is reachable"
+    exit 1
+fi
+
+VENDOR_DIR="${MIDEA_DIR}/_vendor"
+rm -rf "$VENDOR_DIR"
+mkdir -p "$VENDOR_DIR"
+cp -a "${MIDEA_LOCAL_TMP}/midealocal" "$VENDOR_DIR/"
+
+COMMONREGEX_SHIM="${VENDOR_DIR}/commonregex.py"
+if [ ! -f "$COMMONREGEX_SHIM" ]; then
+    cat > "$COMMONREGEX_SHIM" <<'PY'
+"""Minimal commonregex shim for Home Assistant Termux deployment."""
+
+from __future__ import annotations
+
+import re
+
+
+class CommonRegex:
+    """Small subset used for safe redaction paths in midea-local."""
+
+    def __init__(self, text: str) -> None:
+        self._text = text or ""
+        self.emails = re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", self._text)
+        self.links = re.findall(r"https?://[^\s]+", self._text)
+        self.ips = re.findall(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", self._text)
+        self.phones = re.findall(r"\+?\d[\d\s().-]{6,}\d", self._text)
+
+    def __getattr__(self, _name: str):
+        return []
+PY
+fi
+
+python3 - "$MIDEA_DIR" <<'PY'
+import json
+import os
+import sys
+
+component_dir = sys.argv[1]
+manifest_path = os.path.join(component_dir, "manifest.json")
+with open(manifest_path, "r", encoding="utf-8") as f:
+    manifest = json.load(f)
+
+requirements = manifest.get("requirements", [])
+manifest["requirements"] = [req for req in requirements if not req.startswith("midea-local")]
+
+with open(manifest_path, "w", encoding="utf-8") as f:
+    json.dump(manifest, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+
+init_path = os.path.join(component_dir, "__init__.py")
+with open(init_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+bootstrap = (
+    "import os\n"
+    "import sys\n"
+    "# ha-phone vendor bootstrap\n"
+    "_HA_PHONE_VENDOR = os.path.join(os.path.dirname(__file__), \"_vendor\")\n"
+    "if _HA_PHONE_VENDOR not in sys.path:\n"
+    "    sys.path.insert(0, _HA_PHONE_VENDOR)\n\n"
+)
+
+if "# ha-phone vendor bootstrap" not in content:
+    with open(init_path, "w", encoding="utf-8") as f:
+        f.write(bootstrap + content)
+PY
+
+echo "  [OK] bundled runtime deployed into ${VENDOR_DIR}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 bash "${SCRIPT_DIR}/patch-midea.sh" || echo "  [WARN] patch-midea.sh failed"

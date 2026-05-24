@@ -130,7 +130,7 @@ PY
 find_targets() {
     local pattern="$1"
     local root
-    for root in "${HA_CONFIG}/deps" "$CONTAINER_LIB"; do
+    for root in "${HA_CONFIG}/deps" "$CONTAINER_LIB" "${MIDEA_DIR}/_vendor"; do
         [ -d "$root" ] || continue
         find "$root" -path "$pattern" -type f 2>/dev/null || true
     done
