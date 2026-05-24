@@ -358,13 +358,6 @@ else:
         print("  [OK] config_flow.py patched")
     else:
         print("  [WARN] config_flow.py pattern not found, patch not applied")
-    if old_block in content:
-        content = content.replace(old_block, new_block)
-        with open(config_flow_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        print("  [OK] config_flow.py patched")
-    else:
-        print("  [WARN] config_flow.py pattern not found, patch not applied")
 PY
 
     # --- Phase B: Vendor pycryptodome (Crypto) from pre-built wheel ---
