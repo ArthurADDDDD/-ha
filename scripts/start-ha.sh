@@ -45,6 +45,7 @@ if command -v udocker_create >/dev/null 2>&1; then
     fi
 fi
 bash "${SCRIPT_DIR}/patch-container.sh" || log_warn "patch-container.sh 失败，继续启动（HA 可能进 recovery mode）"
+bash "${SCRIPT_DIR}/patch-xiaomi-home.sh" || log_warn "patch-xiaomi-home.sh 失败，继续启动（Xiaomi 集成可能崩溃）"
 
 # ── 启动（前台，日志直接输出到终端）───────────────────────────────────────
 export PORT="${PORT:-8123}"

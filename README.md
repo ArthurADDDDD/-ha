@@ -44,6 +44,7 @@ ha-phone/
 │   ├── check-ha.sh            健康检查
 │   ├── clean.sh                 清理现有安装
 │   ├── patch-container.sh        容器内 Python 库兼容补丁（ifaddr 等）
+│   ├── patch-xiaomi-home.sh      xiaomi_home 兼容补丁（psutil / mDNS 短路）
 │   ├── reinstall-xiaomi-home.sh  重装 Xiaomi Home
 │   └── reinstall-midea.sh       美的美居（可选）
 └── lib/
@@ -100,6 +101,8 @@ sh scripts/reinstall-xiaomi-home.sh  # 仅重装 Xiaomi Home
 1. **udocker platform** — `source.env` 添加 `--platform=linux/arm64`
 2. **Docker 镜像源** — `home-assistant-core.sh` 固定使用 Docker Hub
 3. **ifaddr EACCES** — 容器内 `ifaddr/_posix.py` 容忍 Android `getifaddrs()` 权限拒绝，避免 HA `http` 组件启动失败连锁导致 recovery mode（由 `scripts/patch-container.sh` 在 `start-ha.sh` 启动时自动打）
+4. **xiaomi_home psutil EACCES** — `miot/miot_network.py` 的 `psutil.net_if_addrs()` 在 Android udocker 下 `PermissionError`，导致配置向导 "unknown error"，补丁让其返回空 dict 走 fallback（`scripts/patch-xiaomi-home.sh`，Patch B）
+5. **xiaomi_home MIPS mDNS SIGSEGV** — `miot/miot_mdns.py` 的 `MipsService` 通过 `AsyncServiceBrowser` 监听多播，Android proot 多播套接字会 SIGSEGV(11) 导致 HA 整体崩溃；中国区 cloud_polling 不依赖局域网发现，补丁短路 `init_async/deinit_async`（`scripts/patch-xiaomi-home.sh`，Patch C）
 
 ## 前提条件
 

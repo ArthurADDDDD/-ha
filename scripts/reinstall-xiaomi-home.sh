@@ -67,6 +67,10 @@ fi
 cp -a "$SRC" "$XIAOMI_DIR"
 echo "  ✓ 已部署: $XIAOMI_DIR"
 
+# 部署后立即打补丁（Android/Termux 兼容）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "${SCRIPT_DIR}/patch-xiaomi-home.sh" || echo "  [WARN] patch-xiaomi-home.sh 失败"
+
 # ── 5. 验证 ─────────────────────────────────────────────────────────────────
 echo "  ▶ 验证 manifest.json ..."
 MANIFEST="${XIAOMI_DIR}/manifest.json"
