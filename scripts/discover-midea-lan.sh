@@ -1,22 +1,17 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# scripts/discover-midea-lan.sh - targeted Midea device discovery from Termux
-# Usage: bash scripts/discover-midea-lan.sh <IP_ADDRESS>
+# scripts/discover-midea-lan.sh - Midea device discovery from Termux
+# Usage: bash scripts/discover-midea-lan.sh [IP_ADDRESS]
 set -euo pipefail
 
-if [ $# -lt 1 ]; then
-    echo "Usage: bash scripts/discover-midea-lan.sh <IP_ADDRESS>"
-    echo "Example: bash scripts/discover-midea-lan.sh 192.168.50.100"
-    exit 1
-fi
-
-TARGET_IP="$1"
+TARGET_IP="${1:-}"
 
 python3 - "$TARGET_IP" <<'PY'
 import socket
 import sys
 import struct
+import time
 
-TARGET = sys.argv[1]
+TARGET = sys.argv[1] if sys.argv[1] else None
 PORTS = [6445, 20086]
 
 BROADCAST_MSG = bytearray([
@@ -31,65 +26,98 @@ BROADCAST_MSG = bytearray([
     0x56, 0x9E, 0xB8, 0xEC, 0x91, 0x8E, 0x92, 0xE5,
 ])
 
-print(f"==> Targeted Midea discovery to {TARGET}")
+# Build target list
+targets = []
+if TARGET:
+    targets.append(TARGET)
+    # Also send to the subnet broadcast
+    parts = TARGET.rsplit('.', 1)
+    if len(parts) == 2:
+        targets.append(f"{parts[0]}.255")
+
+print(f"==> Midea LAN Discovery")
+if TARGET:
+    print(f"  Targets: {', '.join(targets)}")
+else:
+    print(f"  Broadcast to: 255.255.255.255")
+    targets.append("255.255.255.255")
 print()
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sock.settimeout(5)
+sock.settimeout(8)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
 try:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 except OSError:
     pass
 
-for port in PORTS:
-    try:
-        sock.sendto(BROADCAST_MSG, (TARGET, port))
-        print(f"  [SEND] {TARGET}:{port}")
-    except OSError as e:
-        print(f"  [FAIL] sendto {TARGET}:{port}: {e}")
+for target in targets:
+    for port in PORTS:
+        try:
+            sock.sendto(BROADCAST_MSG, (target, port))
+            print(f"  [SEND] {target}:{port}")
+        except OSError as e:
+            print(f"  [FAIL] {target}:{port}: {e}")
 
 print()
-print("  Waiting for response (5s timeout)...")
+print("  Waiting for responses (8s timeout)...")
 print()
 
-found = False
+found = set()
 while True:
     try:
         data, addr = sock.recvfrom(1024)
-        found = True
-        print(f"--- Response from {addr[0]}:{addr[1]} ({len(data)} bytes) ---")
+        key = f"{addr[0]}:{addr[1]}"
+        if key in found:
+            continue
+        found.add(key)
+
+        print(f"--- Device at {addr[0]}:{addr[1]} ({len(data)} bytes) ---")
         print(f"  hex: {data.hex()}")
 
         header = data[:2]
         if header == b'\x5a\x5a':
             version = 2
+            inner = data
         elif header == b'\x83\x70':
             version = 3
+            inner = data[8:]
         else:
             version = "unknown"
+            inner = data
 
-        print(f"  version: {version}")
+        print(f"  protocol version: {version}")
 
-        # Try to extract device_id from unencrypted header
-        if version == 2:
-            device_id_raw = data[20:26]
+        if version in (2, 3) and len(inner) >= 40:
+            # Extract device_id from unencrypted header (bytes 20-26, little-endian)
+            device_id_raw = inner[20:26]
             device_id = int.from_bytes(device_id_raw, 'little')
-            print(f"  device_id (from header): {device_id}")
-        elif version == 3:
-            inner = data[8:]
-            if inner[:2] == b'\x5a\x5a':
-                device_id_raw = inner[20:26]
-                device_id = int.from_bytes(device_id_raw, 'little')
-                print(f"  device_id (from V3 inner header): {device_id}")
-                print(f"  inner hex: {inner.hex()}")
+            print(f"  device_id: {device_id}")
 
-        # Try to extract SN from unencrypted portion
-        if version in (2, 3):
-            payload = data if version == 2 else data[8:]
-            sn_bytes = payload[8:40]
-            sn = sn_bytes.decode('ascii', errors='replace').strip('\x00').strip()
+            # Extract SN (bytes 8-40)
+            sn_raw = inner[8:40]
+            sn = sn_raw.split(b'\x00')[0].decode('ascii', errors='replace').strip()
             print(f"  SN: {sn}")
+
+            # Extract model hint from SSID
+            if len(inner) > 41:
+                ssid_raw = inner[41:]
+                ssid = ssid_raw.split(b'\x00')[0].decode('ascii', errors='replace').strip()
+                if ssid:
+                    print(f"  SSID: {ssid}")
+                    parts = ssid.split('_')
+                    if len(parts) >= 2:
+                        try:
+                            dtype = int(parts[1], 16)
+                            print(f"  device_type: 0x{dtype:02X} (AC)" if dtype == 0xAC else f"  device_type: 0x{dtype:02X}")
+                        except ValueError:
+                            pass
+
+            # Print port from header (bytes 4-8)
+            port_raw = inner[4:8]
+            dev_port = struct.unpack('<I', port_raw)[0]
+            print(f"  port: {dev_port}")
 
         print()
     except socket.timeout:
@@ -99,8 +127,13 @@ while True:
         break
 
 if not found:
-    print("  No response received. Device may be offline or on a different subnet.")
+    print("  No devices found.")
+    print()
+    print("  Troubleshooting:")
+    print("  1. Verify the AC is powered on and connected to WiFi")
+    print("  2. Check the IP in your router's DHCP client list")
+    print("  3. Try: bash scripts/discover-midea-lan.sh (without IP)")
 else:
-    print("==> Done. Use device_id above with Configure Manually.")
-    print("    For V3 devices, token/key can be left empty — config flow will fetch from cloud.")
+    print("==> Done. Use device_id with 'Configure Manually' in HA.")
+    print("    For V3 devices, leave token/key empty to fetch from cloud.")
 PY
