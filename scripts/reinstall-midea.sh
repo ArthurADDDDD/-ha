@@ -309,6 +309,49 @@ if "__version__" not in content:
     init_path.write_text(content, encoding="utf-8")
 PY
 
+    # --- Phase A.5: Patch config_flow.py to skip LAN discovery validation ---
+    # Container UDP doesn't work, so discovery in async_step_manually always fails.
+    # Build a fake discovery result from user-provided values instead of erroring.
+    echo "  > patch config_flow.py: skip LAN discovery validation"
+    python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
+import os, sys
+
+component_dir = sys.argv[1]
+config_flow_path = os.path.join(component_dir, "config_flow.py")
+with open(config_flow_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+if "ha-phone manual discovery bypass" in content:
+    print("  [SKIP] config_flow.py already patched")
+else:
+    # Replace the discovery validation block that returns "invalid_device_ip"
+    old_block = (
+        "            # discover result MUST exist\n"
+        "            if len(self.devices) != 1:\n"
+        "                return await self.async_step_manually(error=\"invalid_device_ip\")"
+    )
+    new_block = (
+        "            # discover result MUST exist\n"
+        "            if len(self.devices) != 1:\n"
+        "                # ha-phone manual discovery bypass: UDP may fail in container\n"
+        "                self.devices = {\n"
+        "                    device_id: {\n"
+        "                        CONF_DEVICE_ID: device_id,\n"
+        "                        CONF_IP_ADDRESS: ip,\n"
+        "                        CONF_PORT: user_input.get(CONF_PORT, 6444),\n"
+        "                        CONF_PROTOCOL: user_input.get(CONF_PROTOCOL, 3),\n"
+        "                    }\n"
+        "                }"
+    )
+    if old_block in content:
+        content = content.replace(old_block, new_block)
+        with open(config_flow_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] config_flow.py patched")
+    else:
+        print("  [WARN] config_flow.py pattern not found, patch not applied")
+PY
+
     # --- Phase B: Vendor pycryptodome (Crypto) from pre-built wheel ---
     echo "  > vendor pycryptodome (Crypto) from pre-built wheel"
     PYCRYPTO_TMP="${HOME}/.cache/pycryptodome_wheel"
