@@ -43,21 +43,24 @@ backup_file() {
 # Android/Termux 兼容的 IP 获取
 get_lan_ip() {
     local ip
+    # 每个方法都套 timeout 2s，避免 termux-wifi-connectioninfo 等命令在
+    # 缺定位权限时阻塞导致整个 patch 脚本挂起
+    local T="timeout 2"
 
     # 方法1: ip route (Android 7+)
-    ip=$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    ip=$($T ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
     # 方法2: ip addr 扫 wlan0
-    ip=$(ip addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    ip=$($T ip addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
     # 方法3: ifconfig (两种格式兼容)
-    ip=$(ifconfig wlan0 2>/dev/null | awk '/inet / {gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    ip=$($T ifconfig wlan0 2>/dev/null | awk '/inet / {gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
-    # 方法4: termux-wifi-connectioninfo
-    ip=$(termux-wifi-connectioninfo 2>/dev/null | grep 'ip' | awk -F'"' '{print $4}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法4: hostname -I
+    ip=$($T hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
-    # 方法5: hostname -I
-    ip=$(hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法5: termux-wifi-connectioninfo（放最后，需要定位权限，可能阻塞）
+    ip=$($T termux-wifi-connectioninfo 2>/dev/null | grep 'ip' | awk -F'"' '{print $4}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
     echo "unknown"
 }
