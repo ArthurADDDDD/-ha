@@ -94,6 +94,46 @@ PY
     fi
 fi
 
+# ── Patch E: miot_network.py init_async ──────────────────────────────────────
+# 完全跳过启动期网络探测（http_multi + get_network_info）。Android proot 下：
+#   - aiohttp HTTPS 偶发崩在 TLS/解析底层
+#   - psutil C 扩展在 getifaddrs EACCES 路径上可能直接段错（绕过 Python 层 try/except）
+# 中国区 cloud_polling 不依赖启动期探测，置 network_status=True 即可。
+if [ -f "$NET_FILE" ]; then
+    if grep -q 'ha-phone patch E' "$NET_FILE"; then
+        log_info "Patch E (miot_network init_async) 已存在，跳过"
+    else
+        log_step "Patch E: miot_network.py — 短路 init_async（跳过启动期网络探测）"
+        backup_once "$NET_FILE"
+        python3 - "$NET_FILE" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+needle = (
+    "    async def init_async(self) -> bool:\n"
+    "        self.__refresh_timer_handler()\n"
+    "        # MUST get network info before starting\n"
+    "        return await self._done_event.wait()\n"
+)
+repl = (
+    "    async def init_async(self) -> bool:\n"
+    "        # ha-phone patch E: skip network detection (Android proot incompatible\n"
+    "        # with psutil getifaddrs / aiohttp HTTPS in init path; trust network up)\n"
+    "        self._network_status = True\n"
+    "        if not self._done_event.is_set():\n"
+    "            self._done_event.set()\n"
+    "        return True\n"
+)
+if needle not in s:
+    print("PATTERN NOT FOUND — miot_network.py init_async 不匹配 (Patch E)", file=sys.stderr)
+    sys.exit(2)
+open(p, "w").write(s.replace(needle, repl))
+print("patched E:", p)
+PY
+        log_ok "Patch E 打好"
+    fi
+fi
+
 # ── Patch C: miot_mdns.py MipsService ────────────────────────────────────────
 if [ -f "$MDNS_FILE" ]; then
     if grep -q 'ha-phone patch C' "$MDNS_FILE" || grep -q 'ha-phone patch: skip mDNS' "$MDNS_FILE"; then
