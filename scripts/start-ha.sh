@@ -1,5 +1,8 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # scripts/start-ha.sh — 启动 Home Assistant（前台运行，直接看日志）
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/utils.sh"
@@ -60,5 +63,19 @@ echo "  Ctrl+C 可停止"
 echo "========================================="
 echo ""
 
-# 直接用上游脚本前台运行，日志全部可见
-exec bash "${HA_BASE}/home-assistant-core.sh"
+cleanup_on_interrupt() {
+    echo ""
+    log_warn "收到中断信号，正在停止 Home Assistant ..."
+    bash "${SCRIPT_DIR}/stop-ha.sh" || true
+    exit 130
+}
+
+trap cleanup_on_interrupt INT TERM
+
+# 前台运行并保留中断清理逻辑
+bash "${HA_BASE}/home-assistant-core.sh" &
+HA_BOOT_PID=$!
+wait "$HA_BOOT_PID"
+EXIT_CODE=$?
+trap - INT TERM
+exit "$EXIT_CODE"
