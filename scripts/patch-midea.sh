@@ -106,22 +106,27 @@ PY
         log_step "Patch C: tolerate SO_BROADCAST failure in $target"
         backup_once "$target"
         python3 - "$target" <<'PY'
-import sys
+import sys, re
 
 p = sys.argv[1]
 s = open(p).read()
-needle = "        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)\n"
-repl = (
-    "        try:\n"
-    "            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)\n"
-    "        except OSError as _err:\n"
-    "            _LOGGER.warning('SO_BROADCAST unavailable (%s), skipping UDP broadcast discovery', _err)\n"
-    "            return []  # ha-phone midea patch C\n"
-)
-if needle not in s:
+
+# Match the SO_BROADCAST setsockopt line regardless of indentation
+pattern = r'^(\s*)sock\.setsockopt\(socket\.SOL_SOCKET,\s*socket\.SO_BROADCAST,\s*1\)$'
+m = re.search(pattern, s, re.MULTILINE)
+if not m:
     print(f"PATTERN NOT FOUND (Patch C): {p}", file=sys.stderr)
     sys.exit(2)
-open(p, "w").write(s.replace(needle, repl, 1))
+
+indent = m.group(1)
+original = m.group(0)
+replacement = (
+    f"{indent}try:\n"
+    f"{indent}    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)\n"
+    f"{indent}except OSError:\n"
+    f"{indent}    pass  # ha-phone midea patch C\n"
+)
+open(p, "w").write(s.replace(original, replacement, 1))
 print("patched C:", p)
 PY
         log_ok "Patch C applied"
