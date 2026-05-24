@@ -147,8 +147,34 @@ bootstrap = (
     "    sys.path.insert(0, _HA_PHONE_VENDOR)\n\n"
 )
 if "# ha-phone vendor bootstrap" not in content:
+    lines = content.splitlines(keepends=True)
+    insert_at = 0
+    if lines and lines[0].startswith("#!"):
+        insert_at = 1
+
+    if insert_at < len(lines) and lines[insert_at].startswith(('"""', "'''")):
+        quote = lines[insert_at][:3]
+        insert_at += 1
+        while insert_at < len(lines):
+            if quote in lines[insert_at]:
+                insert_at += 1
+                break
+            insert_at += 1
+
+    while insert_at < len(lines) and lines[insert_at].strip() == "":
+        insert_at += 1
+
+    if insert_at < len(lines) and lines[insert_at].startswith("from __future__ import "):
+        insert_at += 1
+        while insert_at < len(lines) and lines[insert_at].startswith("from __future__ import "):
+            insert_at += 1
+
+    while insert_at < len(lines) and lines[insert_at].strip() == "":
+        insert_at += 1
+
+    lines.insert(insert_at, bootstrap)
     with open(init_path, "w", encoding="utf-8") as f:
-        f.write(bootstrap + content)
+        f.write("".join(lines))
 PY
 
     echo "  > apply msmart version import compatibility patch"
