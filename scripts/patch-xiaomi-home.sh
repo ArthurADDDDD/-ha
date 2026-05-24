@@ -3,13 +3,17 @@
 #
 # Patch B: miot/miot_network.py — psutil.net_if_addrs() 在 Android/Termux udocker
 #   下会因 getifaddrs() EACCES 抛 PermissionError，导致配置向导直接 "unknown error"。
-#   这里 try/except 后返回空 dict，让 HA 走 fallback 路径。
+#   try/except 后返回空 dict，让 HA 走 fallback 路径。
 #
 # Patch C: miot/miot_mdns.py — MipsService 通过 AsyncServiceBrowser 监听 mDNS 多播，
-#   Android proot 对多播/原始套接字会 SIGSEGV(11)，造成 HA 进程整体崩溃。
-#   中国区 cloud_polling 模式不依赖 MIPS 局域网发现，这里短路 init_async/deinit_async。
+#   Android proot 对多播套接字会 SIGSEGV(11)，造成 HA 进程整体崩溃。
+#   中国区 cloud_polling 不依赖 MIPS 局域网发现，短路 init_async/deinit_async。
 #
-# 幂等：已打过的补丁会直接跳过。
+# Patch D: miot/miot_network.py — __ping_async 用 subprocess 调 ping 二进制，ping
+#   会创建 ICMP raw socket，Android proot 同样 SIGSEGV(11)；短路直接返回 TIMEOUT，
+#   http 探测（普通 TCP）保留可用。
+#
+# 幂等：按各自标记独立判断；已打过的直接跳过。
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/utils.sh"
@@ -23,13 +27,18 @@ if [ ! -d "$XIAOMI_DIR" ]; then
     exit 0
 fi
 
-# ── Patch B: miot_network.py ─────────────────────────────────────────────────
+backup_once() {
+    local f="$1"
+    cp "$f" "${f}.bak.$(date +%Y%m%d_%H%M%S)"
+}
+
+# ── Patch B: miot_network.py psutil ──────────────────────────────────────────
 if [ -f "$NET_FILE" ]; then
-    if grep -q 'ha-phone patch' "$NET_FILE"; then
-        log_info "Patch B (miot_network) 已存在，跳过"
+    if grep -q 'ha-phone patch B' "$NET_FILE" || grep -q 'ha-phone patch: Android getifaddrs' "$NET_FILE"; then
+        log_info "Patch B (miot_network psutil) 已存在，跳过"
     else
         log_step "Patch B: miot_network.py — 容忍 psutil.net_if_addrs EACCES"
-        cp "$NET_FILE" "${NET_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+        backup_once "$NET_FILE"
         python3 - "$NET_FILE" <<'PY'
 import sys
 p = sys.argv[1]
@@ -40,7 +49,7 @@ needle = (
 )
 repl = (
     "    def __get_network_info(self) -> dict[str, NetworkInfo]:\n"
-    "        # ha-phone patch: Android getifaddrs EACCES\n"
+    "        # ha-phone patch B: Android getifaddrs EACCES\n"
     "        try:\n"
     "            interfaces = psutil.net_if_addrs()\n"
     "        except (PermissionError, OSError) as _err:\n"
@@ -48,24 +57,50 @@ repl = (
     "            return {}\n"
 )
 if needle not in s:
-    print("PATTERN NOT FOUND — miot_network.py 版本可能不兼容", file=sys.stderr)
+    print("PATTERN NOT FOUND — miot_network.py 版本可能不兼容 (Patch B)", file=sys.stderr)
     sys.exit(2)
 open(p, "w").write(s.replace(needle, repl))
-print("patched:", p)
+print("patched B:", p)
 PY
         log_ok "Patch B 打好"
     fi
-else
-    log_warn "未找到 $NET_FILE，跳过 Patch B"
 fi
 
-# ── Patch C: miot_mdns.py ────────────────────────────────────────────────────
+# ── Patch D: miot_network.py __ping_async ────────────────────────────────────
+if [ -f "$NET_FILE" ]; then
+    if grep -q 'ha-phone patch D' "$NET_FILE"; then
+        log_info "Patch D (miot_network ping) 已存在，跳过"
+    else
+        log_step "Patch D: miot_network.py — 短路 __ping_async（Android proot ICMP SIGSEGV）"
+        backup_once "$NET_FILE"
+        python3 - "$NET_FILE" <<'PY'
+import sys, re
+p = sys.argv[1]
+s = open(p).read()
+needle = "    async def __ping_async(self, address: Optional[str] = None) -> float:\n"
+if needle not in s:
+    print("PATTERN NOT FOUND — miot_network.py __ping_async signature 不匹配", file=sys.stderr)
+    sys.exit(2)
+repl = (
+    "    async def __ping_async(self, address: Optional[str] = None) -> float:\n"
+    "        # ha-phone patch D: skip ping subprocess (Android proot SIGSEGVs on ICMP raw sockets)\n"
+    "        return self._DETECT_TIMEOUT\n"
+)
+# 只替换函数签名行：保留原函数体作为死代码（return 已提前 return）
+open(p, "w").write(s.replace(needle, repl, 1))
+print("patched D:", p)
+PY
+        log_ok "Patch D 打好"
+    fi
+fi
+
+# ── Patch C: miot_mdns.py MipsService ────────────────────────────────────────
 if [ -f "$MDNS_FILE" ]; then
-    if grep -q 'ha-phone patch' "$MDNS_FILE"; then
+    if grep -q 'ha-phone patch C' "$MDNS_FILE" || grep -q 'ha-phone patch: skip mDNS' "$MDNS_FILE"; then
         log_info "Patch C (miot_mdns) 已存在，跳过"
     else
         log_step "Patch C: miot_mdns.py — 短路 MIPS mDNS（Android proot 多播 SIGSEGV）"
-        cp "$MDNS_FILE" "${MDNS_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
+        backup_once "$MDNS_FILE"
         python3 - "$MDNS_FILE" <<'PY'
 import sys
 p = sys.argv[1]
@@ -85,24 +120,22 @@ needle = (
 )
 repl = (
     "    async def init_async(self) -> None:\n"
-    "        # ha-phone patch: skip mDNS multicast (Android proot SIGSEGVs on multicast sockets)\n"
+    "        # ha-phone patch C: skip mDNS multicast (Android proot SIGSEGVs on multicast sockets)\n"
     "        self._aio_browser = None\n"
     "\n"
     "    async def deinit_async(self) -> None:\n"
     "        if self._aio_browser is None:\n"
-    "            return  # ha-phone patch\n"
+    "            return  # ha-phone patch C\n"
     "        await self._aio_browser.async_cancel()\n"
 )
 if needle not in s:
-    print("PATTERN NOT FOUND — miot_mdns.py 版本可能不兼容", file=sys.stderr)
+    print("PATTERN NOT FOUND — miot_mdns.py 版本可能不兼容 (Patch C)", file=sys.stderr)
     sys.exit(2)
 open(p, "w").write(s.replace(needle, repl))
-print("patched:", p)
+print("patched C:", p)
 PY
         log_ok "Patch C 打好"
     fi
-else
-    log_warn "未找到 $MDNS_FILE，跳过 Patch C"
 fi
 
 # 清理 pyc 缓存，避免旧字节码生效
