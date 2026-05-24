@@ -116,6 +116,28 @@ if [ "$MIDEA_IMPL" = "mill" ]; then
         exit 1
     fi
 
+    echo "  > patch vendored msmart __version__"
+    python3 - "${VENDOR_DIR}/msmart/__init__.py" <<'PY'
+import pathlib
+import sys
+
+init_path = pathlib.Path(sys.argv[1])
+content = init_path.read_text(encoding="utf-8")
+
+if "__version__" not in content:
+    content += (
+        "\n\ntry:\n"
+        "    __version__\n"
+        "except NameError:\n"
+        "    try:\n"
+        "        from importlib.metadata import version as _pkg_version\n"
+        "        __version__ = _pkg_version('msmart-ng')\n"
+        "    except Exception:\n"
+        "        __version__ = 'unknown'\n"
+    )
+    init_path.write_text(content, encoding="utf-8")
+PY
+
     echo "  > patch midea_ac manifest and vendor import path"
     python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
 import json
@@ -175,43 +197,6 @@ if "# ha-phone vendor bootstrap" not in content:
     lines.insert(insert_at, bootstrap)
     with open(init_path, "w", encoding="utf-8") as f:
         f.write("".join(lines))
-PY
-
-    echo "  > apply msmart version import compatibility patch"
-    python3 - "${CUSTOM_COMPONENTS}/midea_ac" <<'PY'
-import pathlib
-import re
-import sys
-
-component_dir = pathlib.Path(sys.argv[1])
-pattern = re.compile(
-    r"^(?P<indent>[ \t]*)from msmart import __version__ as msmart_version$",
-    re.MULTILINE,
-)
-
-patched = 0
-for py_file in component_dir.rglob("*.py"):
-    content = py_file.read_text(encoding="utf-8")
-
-    def repl(match: re.Match[str]) -> str:
-        indent = match.group("indent")
-        return (
-            f"{indent}try:\n"
-            f"{indent}    from msmart import __version__ as msmart_version\n"
-            f"{indent}except Exception:\n"
-            f"{indent}    try:\n"
-            f"{indent}        from importlib.metadata import version as _pkg_version\n"
-            f"{indent}        msmart_version = _pkg_version('msmart-ng')\n"
-            f"{indent}    except Exception:\n"
-            f"{indent}        msmart_version = 'unknown'"
-        )
-
-    new_content, replaced = pattern.subn(repl, content)
-    if replaced:
-        py_file.write_text(new_content, encoding="utf-8")
-        patched += 1
-
-print(f"  [OK] compatibility patch applied to {patched} file(s)")
 PY
 else
     echo "  > fetch legacy midea_ac_lan"
