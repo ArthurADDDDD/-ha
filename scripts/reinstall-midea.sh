@@ -76,6 +76,10 @@ fi
 cp -a "$SRC" "$MIDEA_DIR"
 echo "  ✓ 已部署: $MIDEA_DIR"
 
+# 部署后立即尝试打补丁（依赖若尚未安装，会在启动后再次补）
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "${SCRIPT_DIR}/patch-midea.sh" || echo "  [WARN] patch-midea.sh 失败"
+
 # ── 5. 验证 ─────────────────────────────────────────────────────────────────
 echo "  ▶ 验证 manifest.json ..."
 MANIFEST="${MIDEA_DIR}/manifest.json"
@@ -111,6 +115,7 @@ echo ""
 echo "  下一步:"
 echo "    1. 重启 HA: sh scripts/start-ha.sh"
 echo "    2. HA 前端 → 设置 → 添加集成 → 搜索 'Midea'"
+echo "    3. 若自动发现为空，直接手动输入设备 IP"
 echo ""
 echo "  支持设备类型（局域网自动发现）:"
 echo "    - 空调（含风尊系列）"
