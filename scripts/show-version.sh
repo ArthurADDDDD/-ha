@@ -51,15 +51,22 @@ else
 fi
 
 # Midea
-MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
-if [ -f "${MIDEA_DIR}/manifest.json" ]; then
+if [ -d "${HA_CONFIG}/custom_components/midea_ac_lan" ]; then
+    MIDEA_DIR="${HA_CONFIG}/custom_components/midea_ac_lan"
+elif [ -d "${HA_CONFIG}/custom_components/midea_lan" ]; then
+    MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
+else
+    MIDEA_DIR=""
+fi
+
+if [ -n "$MIDEA_DIR" ] && [ -f "${MIDEA_DIR}/manifest.json" ]; then
     MIDEA_VER=$(python3 -c "
 import json
 with open('${MIDEA_DIR}/manifest.json') as f:
     d = json.load(f)
 print(d.get('version', 'unknown'))
 " 2>/dev/null || echo "parse_error")
-    echo "  Midea LAN     : ${MIDEA_VER}"
+    echo "  Midea LAN     : ${MIDEA_VER} ($(basename "$MIDEA_DIR"))"
 else
     echo "  Midea LAN     : 未安装"
 fi

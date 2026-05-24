@@ -10,10 +10,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "${SCRIPT_DIR}/../lib/utils.sh"
 
-MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
+MIDEA_DIR=""
 CONTAINER_LIB="${HOME}/.udocker/containers/${CONTAINER_NAME}/ROOT/usr/local/lib"
 
-if [ ! -d "$MIDEA_DIR" ]; then
+if [ -d "${HA_CONFIG}/custom_components/midea_ac_lan" ]; then
+    MIDEA_DIR="${HA_CONFIG}/custom_components/midea_ac_lan"
+elif [ -d "${HA_CONFIG}/custom_components/midea_lan" ]; then
+    MIDEA_DIR="${HA_CONFIG}/custom_components/midea_lan"
+fi
+
+if [ -z "$MIDEA_DIR" ]; then
     log_warn "midea_lan not installed, skip patch"
     exit 0
 fi
