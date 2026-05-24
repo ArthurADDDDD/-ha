@@ -47,11 +47,24 @@ echo "  Press Ctrl+C to stop"
 echo "========================================="
 echo ""
 
+IN_CLEANUP=0
+HA_BOOT_PID=0
+
 cleanup_on_interrupt() {
+    if [ "$IN_CLEANUP" -eq 1 ]; then
+        return
+    fi
+    IN_CLEANUP=1
     trap - INT TERM
     echo ""
     log_warn "Interrupt received, stopping Home Assistant ..."
+    if [ "$HA_BOOT_PID" -gt 0 ]; then
+        kill -TERM "$HA_BOOT_PID" 2>/dev/null || true
+    fi
     bash "${SCRIPT_DIR}/stop-ha.sh" || true
+    if [ "$HA_BOOT_PID" -gt 0 ]; then
+        wait "$HA_BOOT_PID" 2>/dev/null || true
+    fi
     exit 130
 }
 
