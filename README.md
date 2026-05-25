@@ -128,6 +128,58 @@ sh scripts/reinstall-xiaomi-home.sh  # 仅重装 Xiaomi Home
 - Python >= 3.11（容器自带）
 - ha_xiaomi_home >= v0.4.7
 
+## Google Home 桥接
+
+### 连通方式
+
+- **Cloudflare Tunnel** 提供公网 HTTPS → HA `localhost:8123`
+- **Google Home Developer Console** Cloud-to-cloud 集成
+- OAuth 账号关联 + Smart Home SYNC/QUERY/EXECUTE
+
+### 配置要点
+
+`configuration.yaml` 中 `google_assistant` 块：
+
+```yaml
+google_assistant:
+  project_id: YOUR_GCP_PROJECT_ID
+  service_account: !include google_service_account.json    # 必须用 !include
+  report_state: true
+  expose_by_default: true
+  entity_config:
+    # 隐藏冗余 sub-entity，避免一个设备拆成多个卡片
+    switch.xxx_sub_switch:
+      expose: false
+    sensor.xxx_sub_sensor:
+      expose: false
+```
+
+Developer Console 里 `云端执行网址` 必须以 `/api/google_assistant` 结尾。
+
+### 踩坑记录
+
+| # | 坑 | 解决 |
+|---|-----|------|
+| 1 | **ngrok 被运营商拦截** — TLS 到 ngrok-agent 失败 | 换 Cloudflare Tunnel（QUIC 协议） |
+| 2 | **serveo.net Google 不可达** — SSH 反向隧道被 Google 服务端拦截 | 换 Cloudflare Tunnel |
+| 3 | **OAuth 登录后 "could not reach"** — 云端执行网址漏了 `/api/google_assistant` | 补全为 `https://<domain>/api/google_assistant` |
+| 4 | **`service_account` 报 "expected a dictionary"** — HA 2026.5+ 要求 `!include` | 改为 `service_account: !include xxx.json` |
+| 5 | **HomeGraph API 返回 404** — SA 无 HomeGraph 权限，且未加入 Developer Console 项目成员 | GCP IAM 给 SA Viewer+，同时 Developer Console 成员列表添加 SA 邮箱 |
+| 6 | **一个物理设备拆成 N 个 Google Home 卡片** — midea_ac_lan/xiaomi_home 为每个设备创建大量 sub-entity | `entity_config` 隐藏冗余 entity，只暴露主控制 entity（climate/humidifier/switch 等） |
+| 7 | **小米 BLE 设备显示离线/无数据** — 蓝牙设备依赖网关轮询，HA 读到过期状态 | 确保米家 App 内设备在线，蓝牙距离不要太远 |
+| 8 | **Water Heater 不显示** — Google HomeGraph 拒收 WATERHEATER 类型（"Requested entity was not found"） | 可能需伪装成 Thermostat 类型；Google 对该类型有区域限制 |
+| 9 | **Cloudflare 临时域名重启后变化** — URL 更新需同步改所有 Console 配置 | 正式使用需注册固定隧道 |
+| 10 | **Developer Console 设备类型不匹配** — 选 Dog/空导致设备被丢弃 | 全选 Thermostat/WaterHeater/Humidifier/Switch/Sensor/Fan 等 |
+| 11 | **"未关联的 Action"** — 测试套件状态，非错误 | 在 Google Home APP 里搜 `[test]` 完成账号关联 |
+| 12 | **`expose_by_default: true` 导致所有 entity 暴露** — 108+ 个冗余 sub-entity 涌入 Google Home | 通过 `entity_config` 精准隐藏，配合 Python 脚本按 `device_id` 批量处理 |
+
+### 必需的非仓库文件
+
+| 文件 | 说明 |
+|------|------|
+| `config/google_service_account.json` | GCP SA 密钥，`.gitignore` 已排除 |
+| `.google_home_env` | 隧道域名等运行时变量，`.gitignore` 已排除 |
+
 ## License
 
 Private
