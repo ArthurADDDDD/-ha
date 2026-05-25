@@ -26,6 +26,10 @@ C_BOLD_YELLOW='\033[1;33m'
 C_BOLD_CYAN='\033[1;36m'
 C_BOLD_RED='\033[1;31m'
 
+# ── 临时目录（Android /tmp 是只读的，用 Termux 的 TMPDIR）──
+TMP="${TMPDIR:-${HOME}/tmp}"
+mkdir -p "$TMP"
+
 # ── 状态文件 ──
 STATE_FILE="${REPO_DIR}/.google_home_env"
 touch "$STATE_FILE" 2>/dev/null || true
@@ -101,7 +105,7 @@ phase1_ngrok() {
         else
             log_warn "pkg 安装失败，尝试直接下载二进制..."
             NGROK_URL="https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz"
-            NGROK_TMP="/tmp/ngrok-install-$$"
+            NGROK_TMP="${TMP}/ngrok-install-$$"
             mkdir -p "$NGROK_TMP"
 
             if curl -fsSL "$NGROK_URL" -o "$NGROK_TMP/ngrok.tgz" 2>/dev/null; then
@@ -202,7 +206,7 @@ set -euo pipefail
 
 DOMAIN="${NGROK_DOMAIN}"
 LOGFILE="${HA_BASE}/ngrok.log"
-PIDFILE="/tmp/ngrok-ha.pid"
+PIDFILE="${TMP}/ngrok-ha.pid"
 
 # 杀掉旧进程
 if [ -f "\$PIDFILE" ]; then
@@ -296,7 +300,7 @@ phase2_gcp() {
     else
         log_info "gcloud CLI 未安装，尝试安装..."
         GCLOUD_TARBALL="https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-arm.tar.gz"
-        GCLOUD_TMP="/tmp/gcloud-install-$$"
+        GCLOUD_TMP="${TMP}/gcloud-install-$$"
 
         mkdir -p "$GCLOUD_TMP"
         if curl -fsSL "$GCLOUD_TARBALL" -o "$GCLOUD_TMP/gcloud.tar.gz" 2>/dev/null; then
@@ -340,11 +344,11 @@ phase2_gcp() {
         echo "  请在浏览器中完成 Google 账号登录并授权 gcloud CLI。"
         echo ""
 
-        gcloud auth login --no-browser --quiet 2>&1 | tee /tmp/gcloud-login.log &
+        gcloud auth login --no-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
         GCLOUD_LOGIN_PID=$!
 
         sleep 2
-        GCLOUD_URL=$(grep -o 'https://[^[:space:]]*' /tmp/gcloud-login.log 2>/dev/null | head -1 || true)
+        GCLOUD_URL=$(grep -o 'https://[^[:space:]]*' ${TMP}/gcloud-login.log 2>/dev/null | head -1 || true)
         if [ -n "$GCLOUD_URL" ]; then
             printf "${C_BOLD_GREEN}请打开以下 URL 完成登录：${C_RESET}\n"
             printf "${C_BOLD_CYAN}%s${C_RESET}\n\n" "$GCLOUD_URL"
