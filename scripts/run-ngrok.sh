@@ -2,7 +2,7 @@
 # scripts/run-ngrok.sh — 启动 ngrok 隧道（后台运行 + 日志）
 set -euo pipefail
 
-DOMAIN="stingily-obituary-fancy.ngrok-free.dev"
+DOMAIN="YOUR_NGROK_DOMAIN"
 LOGFILE="/data/data/com.termux/files/home/HomeAssistant-Termux/ngrok.log"
 PIDFILE="/data/data/com.termux/files/usr/tmp/ngrok-ha.pid"
 

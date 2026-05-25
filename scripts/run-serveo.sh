@@ -2,7 +2,7 @@
 # scripts/run-serveo.sh — 启动 Serveo SSH 隧道（后台 + 自动重连）
 set -euo pipefail
 
-DOMAIN="stingily-obituary-fancy"
+DOMAIN="YOUR_SERVEO_SUBDOMAIN"
 LOGFILE="${HOME}/HomeAssistant-Termux/serveo.log"
 PIDFILE="${TMPDIR:-/data/data/com.termux/files/usr/tmp}/serveo-ha.pid"
 

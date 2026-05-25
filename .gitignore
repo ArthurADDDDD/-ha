@@ -8,5 +8,7 @@ __pycache__/
 scripts/test-midea-preset-token.py
 scripts/midea-*.sh
 scripts/midea-*.py
+scripts/run-serveo.sh
+scripts/run-ngrok.sh
 config/google_service_account.json
 .google_home_env
