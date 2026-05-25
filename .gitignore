@@ -5,3 +5,6 @@ __pycache__/
 .DS_Store
 *.swp
 *~
+scripts/test-midea-preset-token.py
+scripts/midea-*.sh
+scripts/midea-*.py
