@@ -347,7 +347,7 @@ phase2_gcp() {
     fi
 
     # ── 2.2 gcloud 登录 ──
-    GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
+    GCLOUD_ACCOUNT=$($GCLOUD_BIN auth list --format='value(account)' 2>/dev/null | head -1 || true)
     if [ -n "$GCLOUD_ACCOUNT" ]; then
         log_ok "gcloud 已登录: ${GCLOUD_ACCOUNT}"
     else
@@ -356,7 +356,7 @@ phase2_gcp() {
         echo "  请在浏览器中完成 Google 账号登录并授权 gcloud CLI。"
         echo ""
 
-        $GCLOUD_BIN authlogin --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
+        $GCLOUD_BIN auth login --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
         GCLOUD_LOGIN_PID=$!
 
         sleep 2
@@ -369,7 +369,7 @@ phase2_gcp() {
         # 等待登录完成（最多 3 分钟）
         for i in $(seq 1 90); do
             sleep 2
-            GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
+            GCLOUD_ACCOUNT=$($GCLOUD_BIN auth list --format='value(account)' 2>/dev/null | head -1 || true)
             if [ -n "$GCLOUD_ACCOUNT" ]; then
                 break
             fi
@@ -381,7 +381,7 @@ phase2_gcp() {
         kill "$GCLOUD_LOGIN_PID" 2>/dev/null || true
         wait "$GCLOUD_LOGIN_PID" 2>/dev/null || true
 
-        GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
+        GCLOUD_ACCOUNT=$($GCLOUD_BIN auth list --format='value(account)' 2>/dev/null | head -1 || true)
         if [ -z "$GCLOUD_ACCOUNT" ]; then
             log_error "gcloud 登录失败或超时，请重试"
             exit 1
