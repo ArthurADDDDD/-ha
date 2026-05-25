@@ -224,7 +224,7 @@ pkill -f "ngrok http.*8123" 2>/dev/null || true
 sleep 0.5
 
 echo "[INFO] 启动 ngrok: https://\${DOMAIN} -> http://localhost:8123"
-nohup ngrok http --domain="\${DOMAIN}" 8123 > "\$LOGFILE" 2>&1 &
+nohup ngrok http --url="\${DOMAIN}" 8123 > "\$LOGFILE" 2>&1 &
 NGROK_PID=\$!
 echo \$NGROK_PID > "\$PIDFILE"
 
@@ -252,7 +252,7 @@ RUNNER_EOF
     sleep 0.5
 
     LOGFILE="${HA_BASE}/ngrok.log"
-    nohup ngrok http --domain="$NGROK_DOMAIN" 8123 > "$LOGFILE" 2>&1 &
+    nohup ngrok http --url="$NGROK_DOMAIN" 8123 > "$LOGFILE" 2>&1 &
     NGROK_PID=$!
 
     # 等待 ngrok 启动
@@ -344,7 +344,7 @@ phase2_gcp() {
         echo "  请在浏览器中完成 Google 账号登录并授权 gcloud CLI。"
         echo ""
 
-        gcloud auth login --no-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
+        gcloud auth login --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
         GCLOUD_LOGIN_PID=$!
 
         sleep 2
