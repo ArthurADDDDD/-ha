@@ -339,6 +339,37 @@ if "ha-phone meiju uid fix" not in content:
         print("  [WARN] MeijuCloud uid pattern not found")
 else:
     print("  [SKIP] MeijuCloud uid fix already applied")
+
+# MideaAirCloud._make_general_data() is missing uid in the request body.
+# Without uid, /v1/iot/secure/getToken returns empty (no tokenlist).
+# The other cloud types (MeijuCloud, MSmartCloud) both include uid,
+# but MideaAirCloud only sends it in headers, not in body.
+if "ha-phone midea air uid fix" not in content:
+    old2 = (
+        'if self._session_id is not None:\n'
+        '            data.update({"sessionId": self._session_id})\n'
+        '        return data\n'
+        '\n'
+        '    async def _api_request('
+    )
+    new2 = (
+        'if self._uid is not None:  # ha-phone midea air uid fix\n'
+        '            data.update({"uid": self._uid})\n'
+        '        if self._session_id is not None:\n'
+        '            data.update({"sessionId": self._session_id})\n'
+        '        return data\n'
+        '\n'
+        '    async def _api_request('
+    )
+    if old2 in content:
+        content = content.replace(old2, new2)
+        with open(cloud_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] MideaAirCloud uid in body fix")
+    else:
+        print("  [WARN] MideaAirCloud _make_general_data pattern not found")
+else:
+    print("  [SKIP] MideaAirCloud uid fix already applied")
 PY
 
     # --- Phase A.5: Patch config_flow.py ---
