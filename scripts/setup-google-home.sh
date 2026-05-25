@@ -353,37 +353,17 @@ phase2_gcp() {
     else
         prompt_human
         printf "${C_BOLD_YELLOW}即将打开 Google 登录页面。${C_RESET}\n\n"
-        echo "  请在浏览器中完成 Google 账号登录并授权 gcloud CLI。"
+        echo "  gcloud 会打印一个 URL，请在手机浏览器中打开。"
+        echo "  完成 Google 登录后，浏览器会显示一组验证码。"
+        echo "  将验证码粘贴回终端即可完成授权。"
         echo ""
 
-        $GCLOUD_BIN auth login --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
-        GCLOUD_LOGIN_PID=$!
-
-        sleep 2
-        GCLOUD_URL=$(grep -o 'https://[^[:space:]]*' ${TMP}/gcloud-login.log 2>/dev/null | head -1 || true)
-        if [ -n "$GCLOUD_URL" ]; then
-            printf "${C_BOLD_GREEN}请打开以下 URL 完成登录：${C_RESET}\n"
-            printf "${C_BOLD_CYAN}%s${C_RESET}\n\n" "$GCLOUD_URL"
-        fi
-
-        # 等待登录完成（最多 3 分钟）
-        for i in $(seq 1 90); do
-            sleep 2
-            GCLOUD_ACCOUNT=$($GCLOUD_BIN auth list --format='value(account)' 2>/dev/null | head -1 || true)
-            if [ -n "$GCLOUD_ACCOUNT" ]; then
-                break
-            fi
-            if ! kill -0 "$GCLOUD_LOGIN_PID" 2>/dev/null; then
-                break
-            fi
-        done
-
-        kill "$GCLOUD_LOGIN_PID" 2>/dev/null || true
-        wait "$GCLOUD_LOGIN_PID" 2>/dev/null || true
+        # 前台运行，让用户可以直接输入验证码
+        $GCLOUD_BIN auth login --no-launch-browser
 
         GCLOUD_ACCOUNT=$($GCLOUD_BIN auth list --format='value(account)' 2>/dev/null | head -1 || true)
         if [ -z "$GCLOUD_ACCOUNT" ]; then
-            log_error "gcloud 登录失败或超时，请重试"
+            log_error "gcloud 登录失败，请重试"
             exit 1
         fi
         log_ok "gcloud 登录成功: ${GCLOUD_ACCOUNT}"
