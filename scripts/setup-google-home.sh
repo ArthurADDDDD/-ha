@@ -295,7 +295,18 @@ phase2_gcp() {
     echo "─────────────────────────────────────────"
 
     # ── 2.1 检查/安装 gcloud CLI ──
+    GCLOUD_BIN=""
     if command -v gcloud >/dev/null 2>&1; then
+        GCLOUD_BIN="gcloud"
+    elif [ -x "${HOME}/google-cloud-sdk/bin/gcloud" ]; then
+        GCLOUD_BIN="${HOME}/google-cloud-sdk/bin/gcloud"
+        export PATH="${HOME}/google-cloud-sdk/bin:${PATH}"
+        if [ -f "${HOME}/google-cloud-sdk/path.bash.inc" ]; then
+            source "${HOME}/google-cloud-sdk/path.bash.inc"
+        fi
+    fi
+
+    if [ -n "$GCLOUD_BIN" ]; then
         log_ok "gcloud CLI 已安装"
     else
         log_info "gcloud CLI 未安装，尝试安装..."
@@ -312,6 +323,7 @@ phase2_gcp() {
                 source "${HOME}/google-cloud-sdk/path.bash.inc"
             fi
             rm -rf "$GCLOUD_TMP"
+            GCLOUD_BIN="${HOME}/google-cloud-sdk/bin/gcloud"
             log_ok "gcloud CLI 安装成功"
         else
             rm -rf "$GCLOUD_TMP"
@@ -335,7 +347,7 @@ phase2_gcp() {
     fi
 
     # ── 2.2 gcloud 登录 ──
-    GCLOUD_ACCOUNT=$(gcloud auth list --format='value(account)' 2>/dev/null | head -1 || true)
+    GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
     if [ -n "$GCLOUD_ACCOUNT" ]; then
         log_ok "gcloud 已登录: ${GCLOUD_ACCOUNT}"
     else
@@ -344,7 +356,7 @@ phase2_gcp() {
         echo "  请在浏览器中完成 Google 账号登录并授权 gcloud CLI。"
         echo ""
 
-        gcloud auth login --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
+        $GCLOUD_BIN authlogin --no-launch-browser --quiet 2>&1 | tee ${TMP}/gcloud-login.log &
         GCLOUD_LOGIN_PID=$!
 
         sleep 2
@@ -357,7 +369,7 @@ phase2_gcp() {
         # 等待登录完成（最多 3 分钟）
         for i in $(seq 1 90); do
             sleep 2
-            GCLOUD_ACCOUNT=$(gcloud auth list --format='value(account)' 2>/dev/null | head -1 || true)
+            GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
             if [ -n "$GCLOUD_ACCOUNT" ]; then
                 break
             fi
@@ -369,7 +381,7 @@ phase2_gcp() {
         kill "$GCLOUD_LOGIN_PID" 2>/dev/null || true
         wait "$GCLOUD_LOGIN_PID" 2>/dev/null || true
 
-        GCLOUD_ACCOUNT=$(gcloud auth list --format='value(account)' 2>/dev/null | head -1 || true)
+        GCLOUD_ACCOUNT=$($GCLOUD_BIN authlist --format='value(account)' 2>/dev/null | head -1 || true)
         if [ -z "$GCLOUD_ACCOUNT" ]; then
             log_error "gcloud 登录失败或超时，请重试"
             exit 1
@@ -379,7 +391,7 @@ phase2_gcp() {
 
     # ── 2.3 创建/选择 GCP 项目 ──
     EXISTING_PROJECT=$(get_state "GCP_PROJECT_ID")
-    if [ -n "$EXISTING_PROJECT" ] && gcloud projects describe "$EXISTING_PROJECT" >/dev/null 2>&1; then
+    if [ -n "$EXISTING_PROJECT" ] && $GCLOUD_BIN projects describe "$EXISTING_PROJECT" >/dev/null 2>&1; then
         log_ok "GCP 项目已存在: ${EXISTING_PROJECT}"
         GCP_PROJECT_ID="$EXISTING_PROJECT"
     else
@@ -390,11 +402,11 @@ phase2_gcp() {
             GCP_PROJECT_ID="$EXISTING_PROJECT"
         fi
 
-        if gcloud projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1; then
+        if $GCLOUD_BIN projects describe "$GCP_PROJECT_ID" >/dev/null 2>&1; then
             log_ok "GCP 项目已存在: ${GCP_PROJECT_ID}"
         else
             log_info "创建 GCP 项目: ${GCP_PROJECT_ID}"
-            if gcloud projects create "$GCP_PROJECT_ID" --name="HA Google Home Bridge" 2>&1; then
+            if $GCLOUD_BIN projects create "$GCP_PROJECT_ID" --name="HA Google Home Bridge" 2>&1; then
                 log_ok "项目创建成功"
             else
                 echo ""
@@ -419,14 +431,14 @@ phase2_gcp() {
     fi
 
     # 设置为当前项目
-    gcloud config set project "$GCP_PROJECT_ID" --quiet
+    $GCLOUD_BIN config set project "$GCP_PROJECT_ID" --quiet
 
     # ── 2.4 启用 HomeGraph API ──
-    if gcloud services list --enabled --project="$GCP_PROJECT_ID" 2>/dev/null | grep -q "homegraph.googleapis.com"; then
+    if $GCLOUD_BIN services list --enabled --project="$GCP_PROJECT_ID" 2>/dev/null | grep -q "homegraph.googleapis.com"; then
         log_ok "HomeGraph API 已启用"
     else
         log_info "启用 HomeGraph API (免费，不会产生费用)..."
-        if gcloud services enable homegraph.googleapis.com --project="$GCP_PROJECT_ID" 2>&1; then
+        if $GCLOUD_BIN services enable homegraph.googleapis.com --project="$GCP_PROJECT_ID" 2>&1; then
             log_ok "HomeGraph API 已启用"
         else
             log_warn "HomeGraph API 启用失败，请确认项目已绑定 billing account"
@@ -444,11 +456,11 @@ phase2_gcp() {
     SA_NAME="ha-homegraph-sa"
     SA_EMAIL="${SA_NAME}@${GCP_PROJECT_ID}.iam.gserviceaccount.com"
 
-    if gcloud iam service-accounts describe "$SA_EMAIL" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
+    if $GCLOUD_BIN iam service-accounts describe "$SA_EMAIL" --project="$GCP_PROJECT_ID" >/dev/null 2>&1; then
         log_ok "Service Account 已存在: ${SA_EMAIL}"
     else
         log_info "创建 Service Account: ${SA_NAME}"
-        gcloud iam service-accounts create "$SA_NAME" \
+        $GCLOUD_BIN iam service-accounts create "$SA_NAME" \
             --display-name="HA HomeGraph Service Account" \
             --project="$GCP_PROJECT_ID" \
             --quiet
@@ -457,7 +469,7 @@ phase2_gcp() {
 
     # ── 2.6 授予 HomeGraph Admin 角色 ──
     log_info "授予 roles/homegraph.admin 权限..."
-    gcloud projects add-iam-policy-binding "$GCP_PROJECT_ID" \
+    $GCLOUD_BIN projects add-iam-policy-binding "$GCP_PROJECT_ID" \
         --member="serviceAccount:${SA_EMAIL}" \
         --role="roles/homegraph.admin" \
         --quiet 2>/dev/null || {
@@ -473,7 +485,7 @@ phase2_gcp() {
         log_ok "Service Account 密钥已存在: ${SA_KEY_HA}"
     else
         log_info "下载 Service Account 密钥..."
-        gcloud iam service-accounts keys create "$SA_KEY_HA" \
+        $GCLOUD_BIN iam service-accounts keys create "$SA_KEY_HA" \
             --iam-account="$SA_EMAIL" \
             --project="$GCP_PROJECT_ID" \
             --quiet 2>/dev/null || {
