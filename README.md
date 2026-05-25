@@ -164,14 +164,16 @@ Developer Console 里 `云端执行网址` 必须以 `/api/google_assistant` 结
 | 2 | **serveo.net Google 不可达** — SSH 反向隧道被 Google 服务端拦截 | 换 Cloudflare Tunnel |
 | 3 | **OAuth 登录后 "could not reach"** — 云端执行网址漏了 `/api/google_assistant` | 补全为 `https://<domain>/api/google_assistant` |
 | 4 | **`service_account` 报 "expected a dictionary"** — HA 2026.5+ 要求 `!include` | 改为 `service_account: !include xxx.json` |
-| 5 | **HomeGraph API 返回 404** — SA 无 HomeGraph 权限，且未加入 Developer Console 项目成员 | GCP IAM 给 SA Viewer+，同时 Developer Console 成员列表添加 SA 邮箱 |
+| 5 | **HomeGraph 404 (`Requested entity was not found`)** — SYNC/EXECUTE 正常但 reportState/request_sync 全 404，根因是 Google Home Developer Console 项目 ID **不等于** GCP 项目 ID（SA 在 A 项目、HomeGraph 数据在 B 项目）| 在 Console 项目对应的 GCP 项目里建 SA、启用 HomeGraph API、生成新 key 替换；`configuration.yaml` 的 `project_id` 也要改成同一个 ID |
 | 6 | **一个物理设备拆成 N 个 Google Home 卡片** — midea_ac_lan/xiaomi_home 为每个设备创建大量 sub-entity | `entity_config` 隐藏冗余 entity，只暴露主控制 entity（climate/humidifier/switch 等） |
-| 7 | **小米 BLE 设备显示离线/无数据** — 蓝牙设备依赖网关轮询，HA 读到过期状态 | 确保米家 App 内设备在线，蓝牙距离不要太远 |
-| 8 | **Water Heater 不显示** — Google HomeGraph 拒收 WATERHEATER 类型（"Requested entity was not found"） | 可能需伪装成 Thermostat 类型；Google 对该类型有区域限制 |
+| 7 | **加湿器在 Google Home App 只显示贴纸**（HUMIDIFIER 类型新版 App UI bug，语音控制正常）| 用 `template:` switch 包装主开关暴露（保留原 humidifier 让语音调湿度仍可用）；模板字段必须用 `state:` / `availability:` 而非旧版 `value_template:` / `availability_template:` |
+| 8 | **Water Heater 不显示**（SYNC 返回的 `attributes: {}` 为空，Google 直接丢弃设备）| 隐藏原 `water_heater.*`，用内置 `generic_thermostat` 包装 `switch.*_power` + `sensor.*_current_temperature` 成 climate 实体；Google 即按 thermostat 渲染，可开关 + 调温度（失去厂商私有 trait）|
 | 9 | **Cloudflare 临时域名重启后变化** — URL 更新需同步改所有 Console 配置 | 正式使用需注册固定隧道 |
 | 10 | **Developer Console 设备类型不匹配** — 选 Dog/空导致设备被丢弃 | 全选 Thermostat/WaterHeater/Humidifier/Switch/Sensor/Fan 等 |
 | 11 | **"未关联的 Action"** — 测试套件状态，非错误 | 在 Google Home APP 里搜 `[test]` 完成账号关联 |
 | 12 | **`expose_by_default: true` 导致所有 entity 暴露** — 108+ 个冗余 sub-entity 涌入 Google Home | 通过 `entity_config` 精准隐藏，配合 Python 脚本按 `device_id` 批量处理 |
+| 13 | **小米 BLE 设备显示离线/无数据** — 蓝牙设备依赖网关轮询，HA 读到过期状态 | 确保米家 App 内设备在线，蓝牙距离不要太远 |
+| 14 | **湿度计/温度计在 Google Home App 只显示贴纸** — `action.devices.types.SENSOR` 在 App 新版 UI 无控件渲染（语音查询正常）| 协议限制，无法在 App 内修复 |
 
 ### 必需的非仓库文件
 

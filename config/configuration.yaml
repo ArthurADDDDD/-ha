@@ -8,17 +8,58 @@ http:
   trusted_proxies:
     - 127.0.0.1
 
-logger:
-  default: info
-
-# ── 预留：Google Home 桥接 ──
-# cloud: {}
-# google_assistant: {}
-
 # ── Google Home 桥接 ──
+# 重要：YOUR_PROJECT_ID 必须 == Google Home Developer Console 项目 ID，
+#       且 SA 必须在同一个 GCP 项目里，否则 reportState/request_sync 永远 404。
 google_assistant:
   project_id: YOUR_PROJECT_ID
   service_account: !include google_service_account.json
   report_state: true
-  expose_by_default: false
-  entity_config: {}
+  expose_by_default: true
+  entity_config:
+    # 隐藏冗余 sub-entity（每台设备保留主控制 entity，其余设置 expose: false）
+    # 示例：switch.<DEVICE_ID>_sub_switch: { expose: false }
+
+    # water_heater 域在 google_assistant 集成里 SYNC attributes 为空，Google 丢弃
+    # → 隐藏原 water_heater，用下方 generic_thermostat 包装暴露
+    water_heater.<WATER_HEATER_ID>:
+      expose: false
+
+# ── 热水器 → Google Home thermostat 桥接 ──
+# Midea water_heater 域 Google 不识别。用 generic_thermostat 包装成标准 climate 实体，
+# Google Home 即可识别为温控器（可开关、可设温度，但失去变频/整箱加热等私有 trait）。
+climate:
+  - platform: generic_thermostat
+    name: water_heater_thermostat
+    unique_id: water_heater_<WATER_HEATER_ID>_thermostat
+    heater: switch.<WATER_HEATER_ID>_power
+    target_sensor: sensor.<WATER_HEATER_ID>_current_temperature
+    min_temp: 30
+    max_temp: 75
+    target_temp: 55
+    cold_tolerance: 1
+    hot_tolerance: 1
+    precision: 1
+    ac_mode: false
+    initial_hvac_mode: "off"
+
+# ── 加湿器辅助 switch（绕开 Google Home App UI bug）──
+# HUMIDIFIER 类型在新版 Google Home App 只渲染贴纸卡（语音正常，但 App 无控件）。
+# 用 template switch 暴露主开关，App 即可点。原 humidifier 实体保留供语音调湿度。
+template:
+  - switch:
+      - name: humidifier_switch
+        unique_id: humidifier_<HUMIDIFIER_ID>_template_switch
+        state: '{{ is_state("humidifier.<HUMIDIFIER_ID>", "on") }}'
+        availability: '{{ states("humidifier.<HUMIDIFIER_ID>") not in ["unknown", "unavailable"] }}'
+        turn_on:
+          - service: humidifier.turn_on
+            target:
+              entity_id: humidifier.<HUMIDIFIER_ID>
+        turn_off:
+          - service: humidifier.turn_off
+            target:
+              entity_id: humidifier.<HUMIDIFIER_ID>
+
+logger:
+  default: info
