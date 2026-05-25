@@ -311,6 +311,40 @@ if "__version__" not in content:
     init_path.write_text(content, encoding="utf-8")
 PY
 
+	    # Fix upstream bug: midealocal device.py AuthException handler leaks socket.
+	    # The except block only logged the error but never set self._socket = None,
+	    # so _connect_loop() exits immediately without retrying, leaving a zombie
+	    # connection that blocks future reconnection attempts.
+	    echo "  > patch device.py socket leak in AuthException handler"
+	    python3 - "${VENDOR_DIR}/midealocal/device.py" <<'PY'
+import sys
+device_path = sys.argv[1]
+content = open(device_path, encoding="utf-8").read()
+
+if "ha-phone socket leak fix" not in content:
+    old = (
+        'except AuthException:  # authenticate exception\n'
+        '            _LOGGER.debug("[%s] Authentication failed", self._device_id)\n'
+        '        except SocketException:  # refresh_status exception'
+    )
+    new = (
+        'except AuthException:  # authenticate exception\n'
+        '            _LOGGER.debug("[%s] Authentication failed", self._device_id)\n'
+        '            self._socket.close()\n'
+        '            self._socket = None  # ha-phone socket leak fix\n'
+        '        except SocketException:  # refresh_status exception'
+    )
+    if old in content:
+        content = content.replace(old, new)
+        with open(device_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] device.py socket leak fixed")
+    else:
+        print("  [WARN] AuthException pattern not found in device.py")
+else:
+    print("  [SKIP] device.py socket leak already fixed")
+PY
+
 	    # Fix upstream bug: MeijuCloud.login() doesn't extract uid from response.
 	    # SmartHomeCloud and MideaAirCloud both do this, but 美的美居 was missed.
 	    # Without uid, /v1/iot/secure/getToken returns empty (no tokenlist).
@@ -634,6 +668,72 @@ if changed:
     print("  [OK] config_flow.py patched successfully")
 else:
     print("  [OK] config_flow.py already fully patched")
+PY
+
+	# --- Phase A.6: Fix double-auth in async_step_manually ---
+	# dm.connect() already calls authenticate() internally for V3 protocol,
+	# so the explicit dm.authenticate() call after dm.connect() causes a
+	# second handshake which fails because the first one already completed.
+	echo "  > patch config_flow.py: double-auth fix"
+	python3 - "$LEGACY_DEPLOY_DIR" <<'PY'
+import os, sys
+component_dir = sys.argv[1]
+cf = os.path.join(component_dir, "config_flow.py")
+content = open(cf, encoding="utf-8").read()
+
+if "ha-phone double-auth fix" not in content:
+    old = (
+        'if dm.connect():\n'
+        '                try:\n'
+        '                    if user_input[CONF_PROTOCOL] == ProtocolVersion.V3:\n'
+        '                        dm.authenticate()\n'
+        '                except SocketException:\n'
+        '                    _LOGGER.exception("Socket closed.")\n'
+        '                except AuthException:\n'
+        '                    _LOGGER.exception(\n'
+        '                        "Unable to authenticate with provided key and token.",\n'
+        '                    )\n'
+        '                    dm.close_socket()\n'
+        '                else:\n'
+        '                    dm.close_socket()\n'
+        '                    data = {'
+    )
+    new = (
+        'if dm.connect():\n'
+        '                dm.close_socket()  # ha-phone double-auth fix\n'
+        '                data = {'
+    )
+    if old in content:
+        content = content.replace(old, new)
+        with open(cf, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("  [OK] double-auth fix applied")
+    else:
+        old2 = (
+            'if dm.connect():\n'
+            '            try:\n'
+            '                if user_input[CONF_PROTOCOL] == ProtocolVersion.V3:\n'
+            '                    dm.authenticate()\n'
+            '            except SocketException:\n'
+            '                _LOGGER.exception("Socket closed.")\n'
+            '            except AuthException:\n'
+            '                _LOGGER.exception(\n'
+            '                    "Unable to authenticate with provided key and token.",\n'
+            '                )\n'
+            '                dm.close_socket()\n'
+            '            else:\n'
+            '                dm.close_socket()\n'
+            '                data = {'
+        )
+        if old2 in content:
+            content = content.replace(old2, new)
+            with open(cf, "w", encoding="utf-8") as f:
+                f.write(content)
+            print("  [OK] double-auth fix applied (alt indent)")
+        else:
+            print("  [WARN] double-auth pattern not found")
+else:
+    print("  [SKIP] double-auth fix already applied")
 PY
 
     # --- Phase B: Vendor pycryptodome (Crypto) from bundled tarball ---
