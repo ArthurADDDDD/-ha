@@ -386,7 +386,7 @@ phase2_gcp() {
             log_ok "GCP 项目已存在: ${GCP_PROJECT_ID}"
         else
             log_info "创建 GCP 项目: ${GCP_PROJECT_ID}"
-            if $GCLOUD_BIN projects create "$GCP_PROJECT_ID" --name="HA Google Home Bridge" 2>&1; then
+            if $GCLOUD_BIN projects create "$GCP_PROJECT_ID" --name="HA Google Home Bridge" --quiet 2>&1; then
                 log_ok "项目创建成功"
             else
                 echo ""
