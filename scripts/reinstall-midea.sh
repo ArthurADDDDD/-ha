@@ -494,8 +494,11 @@ if "ha-phone ip override cloud" not in content:
 else:
     print("  [SKIP] IP override already patched")
 
-# --- Patch 4: Use stored login_data in async_step_manually for V3 token/key ---
-if "ha-phone stored login_data" not in content:
+# --- Patch 4: Always use preset account for V3 token/key in async_step_manually ---
+# The reason: personal Meiju Cloud accounts are restricted from /v1/iot/secure/getToken,
+# but the hardcoded NetHome Plus preset account still works. User's account is only
+# used for listing devices and getting device info, not for token fetching.
+if "ha-phone preset token fix" not in content:
     old = (
         '# init cloud with preset account\n'
         '                result = await self._check_cloud_login()\n'
@@ -507,17 +510,10 @@ if "ha-phone stored login_data" not in content:
     new = (
         '# ha-phone: update device IP from user input before fetching keys\n'
         '                self.devices[int(user_input[CONF_DEVICE_ID])][CONF_IP_ADDRESS] = user_input[CONF_IP_ADDRESS]\n'
-        '                # init cloud: try stored login_data first, fall back to preset\n'
-        '                login_data = self.hass.data.get(DOMAIN, {}).get("login_data", {})  # ha-phone stored login_data\n'
-        '                if login_data:\n'
-        '                    result = await self._check_cloud_login(\n'
-        '                        cloud_name=login_data.get(CONF_SERVER),\n'
-        '                        account=login_data.get(CONF_ACCOUNT),\n'
-        '                        password=login_data.get(CONF_PASSWORD),\n'
-        '                        force_login=True,\n'
-        '                    )\n'
-        '                else:\n'
-        '                    result = await self._check_cloud_login()\n'
+        '                # ha-phone preset token fix: ALWAYS use hardcoded preset account\n'
+        '                # (NetHome Plus) for token fetching. User personal Meiju accounts\n'
+        '                # are restricted from /v1/iot/secure/getToken since ~2025.\n'
+        '                result = await self._check_cloud_login(force_login=True)\n'
         '                if not result:\n'
         '                    return await self.async_step_manually(\n'
         '                        error="Preset account login failed!",\n'
@@ -526,9 +522,43 @@ if "ha-phone stored login_data" not in content:
     if old in content:
         content = content.replace(old, new)
         changed = True
-        print("  [OK] async_step_manually stored login_data")
+        print("  [OK] async_step_manually preset token fix")
+    elif "ha-phone stored login_data" in content:
+        # Previous patch broke the fallback – fix it
+        old2 = (
+            '# init cloud: try stored login_data first, fall back to preset\n'
+            '                login_data = self.hass.data.get(DOMAIN, {}).get("login_data", {})  # ha-phone stored login_data\n'
+            '                if login_data:\n'
+            '                    result = await self._check_cloud_login(\n'
+            '                        cloud_name=login_data.get(CONF_SERVER),\n'
+            '                        account=login_data.get(CONF_ACCOUNT),\n'
+            '                        password=login_data.get(CONF_PASSWORD),\n'
+            '                        force_login=True,\n'
+            '                    )\n'
+            '                else:\n'
+            '                    result = await self._check_cloud_login()\n'
+            '                if not result:\n'
+            '                    return await self.async_step_manually(\n'
+            '                        error="Preset account login failed!",\n'
+            '                    )'
+        )
+        new2 = (
+            '# ha-phone preset token fix: ALWAYS use hardcoded preset account\n'
+            '                # (NetHome Plus) for token fetching\n'
+            '                result = await self._check_cloud_login(force_login=True)\n'
+            '                if not result:\n'
+            '                    return await self.async_step_manually(\n'
+            '                        error="Preset account login failed!",\n'
+            '                    )'
+        )
+        if old2 in content:
+            content = content.replace(old2, new2)
+            changed = True
+            print("  [OK] async_step_manually preset token fix (replaced old patch)")
+        else:
+            print("  [WARN] old stored login_data patch not found for replacement")
     else:
-        print("  [WARN] async_step_manually login_data pattern not found")
+        print("  [WARN] async_step_manually preset pattern not found")
 else:
     print("  [SKIP] async_step_manually already patched")
 
