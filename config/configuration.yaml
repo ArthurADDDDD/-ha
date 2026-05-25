@@ -1,9 +1,6 @@
 # Home Assistant configuration for ha-phone
 # Xiaomi Home 通过 UI config_flow 添加，不需在此配置
 
-homeassistant:
-  language: zh-Hans
-
 default_config:
 
 http:
@@ -17,3 +14,11 @@ logger:
 # ── 预留：Google Home 桥接 ──
 # cloud: {}
 # google_assistant: {}
+
+# ── Google Home 桥接 ──
+google_assistant:
+  project_id: compact-sunset-266610
+  service_account: google_service_account.json
+  report_state: true
+  expose_by_default: false
+  entity_config: {}
