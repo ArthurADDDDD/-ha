@@ -10,7 +10,7 @@ CUSTOM_COMPONENTS="${HA_CONFIG}/custom_components"
 BAK_DIR="${HA_BASE}/.bak/midea_$(date +%Y%m%d_%H%M%S)"
 
 # Default to mill1000/midea-ac-py because it avoids the midea-local/commonregex chain.
-MIDEA_IMPL="${MIDEA_IMPL:-mill}"
+MIDEA_IMPL="${MIDEA_IMPL:-legacy}"
 
 MILL_REPO="https://github.com/mill1000/midea-ac-py.git"
 MILL_TMP="${HOME}/.cache/midea-ac-py"
