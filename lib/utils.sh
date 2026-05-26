@@ -39,6 +39,10 @@ backup_file() {
     fi
 }
 
+backup_once() {
+    cp "$1" "${1}.bak.$(date +%Y%m%d_%H%M%S)"
+}
+
 # ── network helpers ─────────────────────────────────────────────────────────
 # Android/Termux 兼容的 IP 获取
 get_lan_ip() {

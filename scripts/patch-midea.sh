@@ -27,10 +27,6 @@ if [ -z "$MIDEA_DIR" ]; then
     exit 0
 fi
 
-backup_once() {
-    cp "$1" "${1}.bak.$(date +%Y%m%d_%H%M%S)"
-}
-
 patch_ifaddr_file() {
     local target="$1"
     if grep -q 'ha-phone patch: Android/Termux getifaddrs' "$target" || grep -q 'ha-phone midea patch A' "$target"; then

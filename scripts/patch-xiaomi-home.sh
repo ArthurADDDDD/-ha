@@ -20,10 +20,6 @@ if [ ! -d "$XIAOMI_DIR" ]; then
     exit 0
 fi
 
-backup_once() {
-    cp "$1" "${1}.bak.$(date +%Y%m%d_%H%M%S)"
-}
-
 # ── Patch B: miot_network.py psutil ──────────────────────────────────────────
 if [ -f "$NET_FILE" ]; then
     if grep -q 'ha-phone patch B' "$NET_FILE" || grep -q 'ha-phone patch: Android getifaddrs' "$NET_FILE"; then

@@ -49,6 +49,11 @@ if command -v udocker_create >/dev/null 2>&1; then
 fi
 
 # patch-xiaomi-home always runs: it self-checks Patch F IP on every start.
+# Warn if configuration.yaml still has template placeholders
+if grep -q 'YOUR_PROJECT_ID' "${HA_CONFIG}/configuration.yaml" 2>/dev/null; then
+    log_warn "configuration.yaml has unreplaced placeholders, Google Home bridge will fail"
+fi
+
 bash "${SCRIPT_DIR}/patch-xiaomi-home.sh" || log_warn "patch-xiaomi-home.sh failed, continue"
 
 # patch-container + patch-midea are gated by a stamp file to avoid
@@ -77,7 +82,7 @@ echo ""
 echo "========================================="
 echo "  Starting Home Assistant ..."
 echo "  Waiting for log line: on 0.0.0.0:8123"
-echo "  Press Ctrl+C to interrupt foreground logs"
+echo "  Press Ctrl+C to stop Home Assistant"
 echo "========================================="
 echo ""
 
@@ -86,4 +91,13 @@ echo ""
 export UV_LINK_MODE=copy
 export UV_NO_CACHE=1
 
-exec bash "${HA_BASE}/home-assistant-core.sh"
+_stop_ha() {
+    echo ""
+    log_info "Stopping Home Assistant ..."
+    pkill -f "home-assistant-core.sh" 2>/dev/null || true
+    pkill -f "udocker.*${CONTAINER_NAME}" 2>/dev/null || true
+}
+trap _stop_ha INT TERM
+
+bash "${HA_BASE}/home-assistant-core.sh"
+trap - INT TERM
