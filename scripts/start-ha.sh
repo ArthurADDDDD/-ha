@@ -19,11 +19,19 @@ source "${HA_BASE}/source.env" 2>/dev/null || {
     exit 1
 }
 
-# Restart mode: kill stale/running HA process before start, but do not recreate container by default.
-if is_port_listening 8123 || pgrep -f "home-assistant-core.sh" >/dev/null 2>&1 || pgrep -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1; then
+# Kill all HA-related processes and remove the lock file
+_kill_ha() {
+    pkill -f "home-assistant-core.sh" 2>/dev/null || true
+    pkill -f "udocker.*${CONTAINER_NAME}" 2>/dev/null || true
+    pkill -f "python3 -m homeassistant" 2>/dev/null || true
+    rm -f "${HA_CONFIG}/.ha_run.lock"
+}
+
+if is_port_listening 8123 || pgrep -f "home-assistant-core.sh" >/dev/null 2>&1 || \
+   pgrep -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || \
+   pgrep -f "python3 -m homeassistant" >/dev/null 2>&1; then
     echo "[INFO] Existing HA instance detected, killing old process before start ..."
-    pkill -f "home-assistant-core.sh" >/dev/null 2>&1 || true
-    pkill -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
+    _kill_ha
 
     for _ in {1..12}; do
         if ! is_port_listening 8123; then
@@ -34,8 +42,10 @@ if is_port_listening 8123 || pgrep -f "home-assistant-core.sh" >/dev/null 2>&1 |
 
     if is_port_listening 8123; then
         echo "[WARN] Port 8123 still busy, sending SIGKILL ..."
-        pkill -9 -f "home-assistant-core.sh" >/dev/null 2>&1 || true
-        pkill -9 -f "udocker.*${CONTAINER_NAME}" >/dev/null 2>&1 || true
+        pkill -9 -f "home-assistant-core.sh" 2>/dev/null || true
+        pkill -9 -f "udocker.*${CONTAINER_NAME}" 2>/dev/null || true
+        pkill -9 -f "python3 -m homeassistant" 2>/dev/null || true
+        rm -f "${HA_CONFIG}/.ha_run.lock"
         sleep 1
     fi
 fi
@@ -94,8 +104,7 @@ export UV_NO_CACHE=1
 _stop_ha() {
     echo ""
     log_info "Stopping Home Assistant ..."
-    pkill -f "home-assistant-core.sh" 2>/dev/null || true
-    pkill -f "udocker.*${CONTAINER_NAME}" 2>/dev/null || true
+    _kill_ha
 }
 trap _stop_ha INT TERM
 
