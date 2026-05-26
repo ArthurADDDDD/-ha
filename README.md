@@ -182,6 +182,96 @@ Developer Console 里 `云端执行网址` 必须以 `/api/google_assistant` 结
 | `config/google_service_account.json` | GCP SA 密钥，`.gitignore` 已排除 |
 | `.google_home_env` | 隧道域名等运行时变量，`.gitignore` 已排除 |
 
+## 美的空调局域网协议调试
+
+通过 `midea_ac_lan` 集成接入美的风尊旗舰版空调，过程中深入调试了 V3 LAN 协议（TCP 6444，AES 加密）。
+
+### 抓包方法
+
+手机上用 tcpdump 抓空调 6444 端口的 B0/B5 消息，对比美的美居 App 发出的指令和 HA 发出的指令：
+
+```bash
+# 手机端抓包（需要 root 或 Termux 安装 tcpdump）
+tcpdump -i wlan0 -X port 6444 -w /sdcard/midea.pcap
+
+# 操作美的美居 App 中的目标功能（如开关智控温）
+# → 停止抓包，拉到电脑上对比 nstrace/AES 解密后的 payload
+```
+
+### 关键发现：智控温 = `prevent_super_cool`
+
+| 标签 | 预期 | 实际 |
+|------|------|------|
+| `intelligent_control` (0x0031) | 智控温 | **不响应** — 发任何值 AC 都无状态变化 |
+| `prevent_super_cool` (0x0049) | 防过冷 | **就是智控温** — 5 字节值：ON=`0x0100000000`, OFF=`0x0000000000` |
+
+通过抓包美的美居 App 的真实 B0 SET 消息确认：App 点智控温按钮时，发出的 tag 是 0x0049 而非 0x0031。
+
+### 关键发现：`wind_around` 是 2 字节值
+
+环绕风 tag (0x0059) 必须用 2 字节值：
+- ON + 上：`0x0101`
+- ON + 下：`0x0102`
+- OFF：`0x0000`
+
+最初尝试 1 字节值（0x01/0x02），AC 有蜂鸣声但状态不切换。
+
+### patch 要点
+
+`midea_ac_lan/_vendor/midealocal/devices/ac/message.py`:
+
+```python
+# Tag 定义（B5 body / B0 SET 共用）
+prevent_super_cool = 0x0049   # 智控温（不是 0x0031！）
+wind_around = 0x0059          # 环绕风
+
+# B0 SET 构造 — prevent_super_cool 5 字节
+if self.prevent_super_cool is not None:
+    payload.extend(NewProtocolMessageBody.pack(
+        param=NewProtocolTags.prevent_super_cool,
+        value=bytearray(
+            [0x01, 0x00, 0x00, 0x00, 0x00] if self.prevent_super_cool
+            else [0x00, 0x00, 0x00, 0x00, 0x00]
+        ),
+    ))
+
+# B0 SET 构造 — wind_around 2 字节（byte0=on/off, byte1=direction）
+value=bytearray(
+    [0x01, 0x01] if self.wind_around else [0x00, 0x00]
+)
+
+# B5/B1 解析
+if NewProtocolTags.prevent_super_cool in params:
+    self.prevent_super_cool = params[NewProtocolTags.prevent_super_cool][0] == 1
+if NewProtocolTags.wind_around in params:
+    self.wind_around = params[NewProtocolTags.wind_around][0] != 0
+```
+
+### B0 / B5 协议速览
+
+| 消息类型 | 方向 | 用途 |
+|----------|------|------|
+| B0 SET | HA → AC | 发送控制命令 |
+| B1 notify | AC → HA | 全量状态快照（查询响应） |
+| B5 notify | AC → HA | 单 tag 状态变更推送 |
+
+B5 是 AC 主动推送的单属性变更通知（如在遥控器上按了一下），HA 通过解析 B5 body 更新对应 entity 状态。
+
+### Google Home 语音组合方案
+
+两种方式实现一键多操作：
+
+| 方案 | 做法 | 优缺点 |
+|------|------|--------|
+| **HA script** | `scripts.yaml` 写组合脚本，暴露为 scene 给 Google | 集中管理，但需改配置重启 |
+| **Google Home Routine** | 暴露单独开关，在 Google Home App 里建 Routine | 无需改 HA 配置，用户自行灵活组合 |
+
+最终采用 **暴露原子开关 + Google Home Routine** 的方案，HA 侧只暴露 `wind_around`/`prevent_super_cool`/`comfort_mode` 三个开关，组合逻辑交给 Google。
+
+### 暴露控制
+
+`configuration.yaml` 的 `google_assistant.entity_config` 中通过 `expose: false` 精准隐藏冗余 entity，只暴露用户需要的控制按钮。`expose_by_default: true` 模式下未列出的 entity 全暴露，因此每次新增集成后需检查并隐藏不想要的 entity。
+
 ## License
 
 Private

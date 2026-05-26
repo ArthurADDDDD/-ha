@@ -61,5 +61,8 @@ template:
             target:
               entity_id: humidifier.<HUMIDIFIER_ID>
 
+# ── 语音组合脚本（可选，也可用 Google Home Routine 替代）──
+script: !include scripts.yaml
+
 logger:
   default: info

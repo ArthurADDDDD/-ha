@@ -1,0 +1,31 @@
+# ── Google Home 语音组合脚本（模板）──
+# 如果不想在 Google Home App 里手动建 Routine，
+# 可以用 HA script 把多步操作打包成一个场景暴露给 Google。
+#
+# 使用时请替换 entity_id 为实际设备 ID。
+
+# huanrao_zhi_kong_wen:
+#   alias: 环绕风智控温
+#   icon: mdi:tailwind
+#   sequence:
+#     - service: switch.turn_on
+#       target:
+#         entity_id: switch.<DEVICE_ID>_wind_around
+#     - delay:
+#         milliseconds: 500
+#     - service: switch.turn_on
+#       target:
+#         entity_id: switch.<DEVICE_ID>_prevent_super_cool
+#
+# huanrao_shu_sheng:
+#   alias: 环绕风舒省
+#   icon: mdi:tailwind
+#   sequence:
+#     - service: switch.turn_on
+#       target:
+#         entity_id: switch.<DEVICE_ID>_wind_around
+#     - delay:
+#         milliseconds: 500
+#     - service: switch.turn_on
+#       target:
+#         entity_id: switch.<DEVICE_ID>_comfort_mode
