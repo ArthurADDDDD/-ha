@@ -49,7 +49,8 @@ get_lan_ip() {
     T="$(command -v timeout 2>/dev/null && echo 'timeout 2' || true)"
 
     # 方法0: ifconfig 不带 timeout（最兼容，SSH 非交互环境也能用）
-    ip=$(ifconfig wlan0 2>/dev/null | awk '/inet / {gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 不指定接口名，避免部分 Android 用户权限不足打开 /proc/net/dev 的问题
+    ip=$(ifconfig 2>/dev/null | awk '/wlan0/{f=1} f && /inet /{gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
     # 方法1: ip route (Android 7+)
     ip=$(${T:-} ip route get 1.1.1.1 2>/dev/null | awk '/src/ {print $NF; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
@@ -57,8 +58,8 @@ get_lan_ip() {
     # 方法2: ip addr 扫 wlan0
     ip=$(${T:-} ip addr show wlan0 2>/dev/null | awk '/inet / {split($2,a,"/"); print a[1]; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
-    # 方法3: ifconfig (两种格式兼容)
-    ip=$(${T:-} ifconfig wlan0 2>/dev/null | awk '/inet / {gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
+    # 方法3: ifconfig (两种格式兼容，同方法0但带 timeout)
+    ip=$(${T:-} ifconfig 2>/dev/null | awk '/wlan0/{f=1} f && /inet /{gsub("addr:","",$2); print $2; exit}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
 
     # 方法4: hostname -I
     ip=$(${T:-} hostname -I 2>/dev/null | awk '{print $1}') && [ -n "$ip" ] && { echo "$ip"; return 0; }
