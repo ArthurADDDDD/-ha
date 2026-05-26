@@ -48,9 +48,30 @@ if command -v udocker_create >/dev/null 2>&1; then
     fi
 fi
 
-bash "${SCRIPT_DIR}/patch-container.sh" || log_warn "patch-container.sh failed, continue"
+# patch-xiaomi-home always runs: it self-checks Patch F IP on every start.
 bash "${SCRIPT_DIR}/patch-xiaomi-home.sh" || log_warn "patch-xiaomi-home.sh failed, continue"
-bash "${SCRIPT_DIR}/patch-midea.sh" || log_warn "patch-midea.sh failed, continue"
+
+# patch-container + patch-midea are gated by a stamp file to avoid
+# re-scanning the container lib on every start.
+PATCH_STAMP="${HA_BASE}/.ha_patch_stamp"
+_patches_need_run() {
+    [ -f "$PATCH_STAMP" ] || return 0
+    for f in "${SCRIPT_DIR}/patch-container.sh" "${SCRIPT_DIR}/patch-midea.sh"; do
+        [ "$f" -nt "$PATCH_STAMP" ] && return 0
+    done
+    for d in "${HA_CONFIG}/custom_components/midea_ac_lan" \
+             "${HA_CONFIG}/custom_components/midea_lan"; do
+        [ -d "$d" ] && [ "$d" -nt "$PATCH_STAMP" ] && return 0
+    done
+    return 1
+}
+if _patches_need_run; then
+    bash "${SCRIPT_DIR}/patch-container.sh" || log_warn "patch-container.sh failed, continue"
+    bash "${SCRIPT_DIR}/patch-midea.sh"     || log_warn "patch-midea.sh failed, continue"
+    touch "$PATCH_STAMP"
+else
+    log_info "Container/midea patches up to date, skipping"
+fi
 
 echo ""
 echo "========================================="

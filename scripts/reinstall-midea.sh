@@ -872,6 +872,9 @@ for r in req:
 " || true
 fi
 
+# 使 start-ha.sh 的 patch stamp 失效，确保下次启动重打所有补丁
+rm -f "${HA_BASE}/.ha_patch_stamp"
+
 echo ""
 echo "========================================="
 echo "  Midea integration deployment complete"

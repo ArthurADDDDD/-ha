@@ -160,6 +160,49 @@ PY
     fi
 fi
 
+# ── Patch F: miot/const.py OAUTH_REDIRECT_URL ────────────────────────────────
+CONST_FILE="${XIAOMI_DIR}/miot/const.py"
+if [ -f "$CONST_FILE" ]; then
+    CURRENT_IP="$(get_lan_ip)"
+    if [ "$CURRENT_IP" = "unknown" ]; then
+        log_warn "Patch F: 无法获取 LAN IP，跳过"
+    elif grep -q 'ha-phone patch F' "$CONST_FILE"; then
+        if grep -q "OAUTH_REDIRECT_URL.*${CURRENT_IP}" "$CONST_FILE"; then
+            log_info "Patch F (OAUTH redirect) 已存在且 IP 匹配 (${CURRENT_IP})，跳过"
+        else
+            log_step "Patch F: OAUTH_REDIRECT_URL IP 已变更，更新为 ${CURRENT_IP}"
+            python3 - "$CONST_FILE" "$CURRENT_IP" <<'PY'
+import sys, re
+p, ip = sys.argv[1], sys.argv[2]
+s = open(p).read()
+s = re.sub(
+    r"(OAUTH_REDIRECT_URL: str = 'http://)([^']+)(:8123'.*# ha-phone patch F)",
+    rf"\g<1>{ip}\g<3>",
+    s,
+)
+open(p, "w").write(s)
+print(f"updated patch F: {p} → {ip}")
+PY
+            log_ok "Patch F IP 已更新"
+        fi
+    else
+        log_step "Patch F: const.py — 修正 OAUTH_REDIRECT_URL → ${CURRENT_IP}"
+        backup_once "$CONST_FILE"
+        python3 - "$CONST_FILE" "$CURRENT_IP" <<'PY'
+import sys
+p, ip = sys.argv[1], sys.argv[2]
+s = open(p).read()
+needle = "OAUTH_REDIRECT_URL: str = 'http://homeassistant.local:8123'"
+if needle not in s:
+    print("PATTERN NOT FOUND (Patch F)", file=sys.stderr); sys.exit(2)
+repl = f"OAUTH_REDIRECT_URL: str = 'http://{ip}:8123'  # ha-phone patch F"
+open(p, "w").write(s.replace(needle, repl, 1))
+print(f"patched F: {p} → {ip}")
+PY
+        log_ok "Patch F 打好"
+    fi
+fi
+
 # 清理 pyc 缓存
 find "$XIAOMI_DIR" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 find "$XIAOMI_DIR" -name "*.pyc" -delete 2>/dev/null || true
